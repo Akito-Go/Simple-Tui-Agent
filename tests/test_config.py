@@ -86,8 +86,15 @@ class TestApiKey:
     def test_get_api_key_missing(self, monkeypatch):
         monkeypatch.delenv("TUI_AGENT_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         with pytest.raises(ValueError, match="TUI_AGENT_API_KEY"):
             get_api_key()
+
+    def test_get_anthropic_api_key(self, monkeypatch):
+        monkeypatch.delenv("TUI_AGENT_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+        assert get_api_key("anthropic") == "sk-ant-test"
 
     def test_get_api_key_from_dotenv(self, tmp_path, monkeypatch):
         """测试从 .env 文件读取 API Key"""

@@ -118,10 +118,24 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return {}
 
 
+_LLM_FLAT_KEYS = ("provider", "model", "api_base", "timeout", "max_retries")
+
+
 def _get_default_config() -> dict[str, Any]:
     """获取内置默认配置"""
     default_path = Path(__file__).parent.parent.parent.parent / "config" / "default.yaml"
     return _load_yaml(default_path)
+
+
+def _normalize_llm_section(config_dict: dict[str, Any]) -> dict[str, Any]:
+    """将顶层 LLM 字段并入 llm: 块（兼容旧 YAML 扁平写法）"""
+    llm = dict(config_dict.get("llm") or {})
+    for key in _LLM_FLAT_KEYS:
+        if key in config_dict and key not in llm:
+            llm[key] = config_dict[key]
+    config_dict = dict(config_dict)
+    config_dict["llm"] = llm
+    return config_dict
 
 
 def load_config(project_root: Path | None = None) -> AppConfig:
@@ -134,13 +148,15 @@ def load_config(project_root: Path | None = None) -> AppConfig:
     - 默认: config/default.yaml (内置)
 
     支持通过 .env 文件统一配置所有运行环境变量：
-      TUI_AGENT_API_KEY=sk-xxx          # API Key（必须）
-      TUI_AGENT_MODEL=gpt-4o-mini  # 模型名称（可选，覆盖 YAML）
-      TUI_AGENT_MODELS=[...]      # 可切换模型列表，方括号内每行一个（可选）
-      TUI_AGENT_API_BASE=...      # API 地址（可选）
-      TUI_AGENT_TIMEOUT=120       # 超时时间（可选）
-      TUI_AGENT_MAX_TURNS=20      # 最大轮次（可选）
-      TUI_AGENT_MAX_RETRIES=3     # 最大重试（可选）
+      TUI_AGENT_API_KEY=sk-xxx     # API Key（OpenAI 兼容）
+      ANTHROPIC_API_KEY=sk-ant-... # Anthropic（provider=anthropic 时）
+      TUI_AGENT_PROVIDER=openai_compat|anthropic
+      TUI_AGENT_MODEL=gpt-4o-mini
+      TUI_AGENT_MODELS=[...]
+      TUI_AGENT_API_BASE=...
+      TUI_AGENT_TIMEOUT=120
+      TUI_AGENT_MAX_TURNS=20
+      TUI_AGENT_MAX_RETRIES=3
     """
     if project_root is None:
         project_root = Path.cwd()
@@ -161,14 +177,18 @@ def load_config(project_root: Path | None = None) -> AppConfig:
     project_config = _load_yaml(project_config_path)
     config_dict = _deep_merge(config_dict, project_config)
 
+    # 3.5 规范化 llm 段（兼容顶层扁平字段）
+    config_dict = _normalize_llm_section(config_dict)
+
     # 4. .env 环境变量覆盖（最高优先级）
     env_overrides = {
+        "provider": os.environ.get("TUI_AGENT_PROVIDER"),
         "model": os.environ.get("TUI_AGENT_MODEL"),
         "api_base": os.environ.get("TUI_AGENT_API_BASE"),
         "timeout": os.environ.get("TUI_AGENT_TIMEOUT"),
         "max_retries": os.environ.get("TUI_AGENT_MAX_RETRIES"),
     }
-    llm_dict = config_dict.get("llm", {})
+    llm_dict = dict(config_dict.get("llm") or {})
     for key, value in env_overrides.items():
         if value is not None:
             if key in ("timeout", "max_retries"):
@@ -206,15 +226,31 @@ def load_config(project_root: Path | None = None) -> AppConfig:
     return app_config
 
 
-def get_api_key() -> str:
+def get_api_key(provider: str | None = None) -> str:
     """从环境变量获取 API Key（支持 .env 文件）"""
+    name = (provider or "").strip().lower()
+    if name in ("anthropic", "claude"):
+        api_key = (
+            os.environ.get("ANTHROPIC_API_KEY", "")
+            or os.environ.get("TUI_AGENT_API_KEY", "")
+        )
+        if not api_key:
+            raise ValueError(
+                "未设置 ANTHROPIC_API_KEY（或 TUI_AGENT_API_KEY）。请通过以下方式之一配置:\n"
+                "  1. 创建 .env 文件: echo 'ANTHROPIC_API_KEY=<your_key>' > .env\n"
+                "  2. 设置环境变量: export ANTHROPIC_API_KEY=<your_key>\n"
+                "  3. 并设置 TUI_AGENT_PROVIDER=anthropic"
+            )
+        return api_key
+
     api_key = (
         os.environ.get("TUI_AGENT_API_KEY", "")
         or os.environ.get("OPENAI_API_KEY", "")
+        or os.environ.get("ANTHROPIC_API_KEY", "")
     )
     if not api_key:
         raise ValueError(
-            "未设置 TUI_AGENT_API_KEY（或 OPENAI_API_KEY）。请通过以下方式之一配置:\n"
+            "未设置 TUI_AGENT_API_KEY（或 OPENAI_API_KEY / ANTHROPIC_API_KEY）。请通过以下方式之一配置:\n"
             "  1. 创建 .env 文件: echo 'TUI_AGENT_API_KEY=<your_key>' > .env\n"
             "  2. 设置环境变量: export TUI_AGENT_API_KEY=<your_key>"
         )

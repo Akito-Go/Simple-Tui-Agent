@@ -13,6 +13,7 @@ SENSITIVE_PATTERNS = [
     (re.compile(r"Bearer\s+[^\s]+"), "Bearer ***"),  # Bearer Token
     (re.compile(r"TUI_AGENT_API_KEY[=:]\s*[^\s,}]+"), "TUI_AGENT_API_KEY=***"),
     (re.compile(r"OPENAI_API_KEY[=:]\s*[^\s,}]+"), "OPENAI_API_KEY=***"),
+    (re.compile(r"ANTHROPIC_API_KEY[=:]\s*[^\s,}]+"), "ANTHROPIC_API_KEY=***"),
 ]
 
 

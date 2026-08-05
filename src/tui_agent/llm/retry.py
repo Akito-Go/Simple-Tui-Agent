@@ -16,11 +16,25 @@ RETRYABLE_ERRORS = (
 )
 
 
+def _extract_status_code(error: Exception) -> int | None:
+    """从 SDK 异常中提取 HTTP 状态码（若有）"""
+    status = getattr(error, "status_code", None)
+    if isinstance(status, int):
+        return status
+    response = getattr(error, "response", None)
+    if response is not None:
+        code = getattr(response, "status_code", None)
+        if isinstance(code, int):
+            return code
+    return None
+
+
 def is_retryable(error: Exception) -> bool:
-    """判断错误是否可重试（仅网络/超时错误，不含认证错误）"""
-    # HTTP 4xx 错误不应重试
-    if hasattr(error, "status_code"):
-        status = getattr(error, "status_code", 0)
+    """判断错误是否可重试（网络/超时/429/5xx；不含认证等 4xx）"""
+    status = _extract_status_code(error)
+    if status is not None:
+        if status in (408, 429, 500, 502, 503, 504):
+            return True
         if 400 <= status < 500:
             return False
     return isinstance(error, RETRYABLE_ERRORS)

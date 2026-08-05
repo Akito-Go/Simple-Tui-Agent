@@ -13,7 +13,7 @@
 | 项目 | 要求 |
 |------|------|
 | Python | **3.11+**（`python --version` 确认） |
-| API Key | 任意 OpenAI 兼容服务的 API Key（`TUI_AGENT_API_KEY` 或 `OPENAI_API_KEY`） |
+| API Key | OpenAI 兼容：`TUI_AGENT_API_KEY` / `OPENAI_API_KEY`；Anthropic：`ANTHROPIC_API_KEY` |
 | 终端 | 支持全屏 TUI（macOS Terminal / iTerm2、Windows Terminal 等） |
 
 > macOS 通过 Homebrew 安装的 Python 受 [PEP 668](https://peps.python.org/pep-0668/) 保护，**不要**直接用系统 `pip install`，请使用下方虚拟环境。
@@ -66,13 +66,20 @@ python -c "import tui_agent; print('安装成功')"
 cp .env.example .env    # Windows: copy .env.example .env
 ```
 
-编辑 `.env`，**至少**填入：
+编辑 `.env`，按 Provider 填入密钥：
 
 ```bash
+# OpenAI 兼容（默认）
+TUI_AGENT_PROVIDER=openai_compat
 TUI_AGENT_API_KEY=你的真实-api-key
+
+# 或 Anthropic Messages API
+# TUI_AGENT_PROVIDER=anthropic
+# ANTHROPIC_API_KEY=你的-anthropic-key
+# TUI_AGENT_MODEL=claude-sonnet-4-5
 ```
 
-按需修改 `TUI_AGENT_API_BASE`（默认 `https://api.openai.com/v1`）和模型名称。其余配置见 `.env.example`。
+按需修改 `TUI_AGENT_API_BASE` 和模型名称。其余配置见 `.env.example`。
 
 ### 第 4 步：启动
 
@@ -126,14 +133,14 @@ tui-agent
 ### 环境要求
 
 - Python 3.11+
-- OpenAI 兼容 API Key
+- OpenAI 兼容 API Key，或 Anthropic API Key
 
 ### 安装与启动
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate   # Windows 见上文
 pip install -e ".[dev]"
-cp .env.example .env   # 填入 TUI_AGENT_API_KEY
+cp .env.example .env   # 填入 API Key 与可选 TUI_AGENT_PROVIDER
 python -m tui_agent
 ```
 
@@ -147,7 +154,9 @@ python -m tui_agent
 
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
-| `TUI_AGENT_API_KEY` | — | **必填**（也可用 `OPENAI_API_KEY`） |
+| `TUI_AGENT_PROVIDER` | `openai_compat` | `openai_compat` 或 `anthropic` |
+| `TUI_AGENT_API_KEY` | — | OpenAI 兼容密钥（也可用 `OPENAI_API_KEY`） |
+| `ANTHROPIC_API_KEY` | — | Anthropic 密钥（`provider=anthropic` 时） |
 | `TUI_AGENT_MODEL` | `gpt-4o-mini` | 当前模型 |
 | `TUI_AGENT_API_BASE` | `https://api.openai.com/v1` | API 地址 |
 | `TUI_AGENT_TIMEOUT` | `120` | 请求超时（秒） |
@@ -245,7 +254,7 @@ python -m pytest tests/ -v
 |------|------|
 | 语言 | Python 3.11+ |
 | TUI | Textual |
-| LLM | openai SDK（OpenAI 兼容协议） |
+| LLM | openai SDK（OpenAI 兼容）+ anthropic SDK（Messages API） |
 | 配置 | YAML + pydantic + .env |
 | 日志 | loguru |
 | 测试 | pytest + pytest-asyncio |
@@ -253,6 +262,7 @@ python -m pytest tests/ -v
 ## 核心特性
 
 - Agent Loop、工具系统、权限控制、会话管理均为自实现（未使用 LangChain / AutoGPT 等 Agent SDK）
+- 支持 OpenAI 兼容协议与 Anthropic Messages API（配置切换）
 - API Key 仅环境变量，日志脱敏
 - 支持多模型切换、会话恢复、上下文压缩、`/stop` 终止
 - 工作区沙箱与敏感文件拦截

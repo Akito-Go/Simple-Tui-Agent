@@ -158,3 +158,46 @@ class TestAgentLoopError:
         # 应该有 ToolCallResult 且 success=False
         tool_results = [e for e in events if isinstance(e, ToolCallResult)]
         assert any(not r.success for r in tool_results)
+
+
+class TestMultiToolPermissionQueue:
+    @pytest.mark.asyncio
+    async def test_remaining_tools_run_after_confirm(self, mock_llm_provider, temp_workspace, monkeypatch):
+        """多工具时确认后应继续执行同轮后续工具，避免缺 tool_result"""
+        monkeypatch.chdir(temp_workspace)
+
+        mock_llm_provider.set_responses([
+            MockLLMResponse(tool_calls=[
+                {
+                    "id": "call_w",
+                    "function": {
+                        "name": "write_file",
+                        "arguments": '{"path": "a.py", "content": "x=1"}',
+                    },
+                },
+                {
+                    "id": "call_l",
+                    "function": {"name": "list_dir", "arguments": '{"path": "./"}'},
+                },
+            ]),
+            MockLLMResponse(content="完成"),
+        ])
+
+        agent = make_agent(mock_llm_provider)
+        events = []
+        async for event in agent.run("写文件并列出"):
+            events.append(event)
+
+        assert any(isinstance(e, PermissionRequest) for e in events)
+        assert agent._queued_tool_calls  # list_dir 排队
+
+        cont = []
+        async for event in agent.continue_with_confirmation(True):
+            cont.append(event)
+
+        # 后续 list_dir 应已执行，且最终有完成
+        assert any(isinstance(e, ToolCallResult) and e.name == "list_dir" for e in cont)
+        assert any(isinstance(e, AgentFinished) for e in cont)
+        # 会话中两个 tool_result 齐全
+        tool_msgs = [m for m in agent.session.messages if m.get("role") == "tool"]
+        assert {m["tool_call_id"] for m in tool_msgs} == {"call_w", "call_l"}

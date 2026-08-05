@@ -7,6 +7,7 @@ DEFAULT_MODEL = "gpt-4o-mini"
 DEFAULT_AVAILABLE_MODELS = [
     "gpt-4o-mini",
     "gpt-4o",
+    "claude-sonnet-4-5",
     "deepseek-chat",
 ]
 

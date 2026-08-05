@@ -25,7 +25,7 @@ from ..agent.types import (
 )
 from ..config.loader import load_config, get_api_key
 from ..config.schema import AppConfig
-from ..llm.openai_compat import OpenAICompatProvider
+from ..llm.factory import create_llm_provider
 from ..tools.registry import ToolRegistry
 from ..tools.list_dir import ListDirTool
 from ..tools.read_file import ReadFileTool
@@ -74,7 +74,7 @@ class TuiAgentApp(App):
         screen = self.screen
         try:
             self.config = load_config()
-            api_key = get_api_key()
+            api_key = get_api_key(self.config.llm.provider)
 
             # 检查是否有历史会话
             from ..session.loader import list_sessions
@@ -106,13 +106,7 @@ class TuiAgentApp(App):
         """执行 Agent 初始化"""
         set_workspace_root(Path.cwd().resolve())
         screen = self.screen
-        provider = OpenAICompatProvider(
-            api_key=api_key,
-            base_url=self.config.llm.api_base,
-            model=self.config.llm.model,
-            timeout=self.config.llm.timeout,
-            max_retries=self.config.llm.max_retries,
-        )
+        provider = create_llm_provider(self.config.llm, api_key)
 
         registry = ToolRegistry()
         registry.register(ListDirTool())
@@ -208,7 +202,7 @@ class TuiAgentApp(App):
             self._selecting_session = False
             self._pending_sessions = []
             chat.add_system_message("开始新会话")
-            self._do_init_agent(get_api_key())
+            self._do_init_agent(get_api_key(self.config.llm.provider))
             return
 
         if text.isdigit():
@@ -220,7 +214,7 @@ class TuiAgentApp(App):
                     self._selecting_session = False
                     self._pending_sessions = []
                     chat.add_system_message(f"✅ 已恢复会话 {session.session_id}")
-                    self._do_init_agent(get_api_key(), session=session)
+                    self._do_init_agent(get_api_key(self.config.llm.provider), session=session)
                     return
             chat.add_system_message(
                 f"无效序号，请输入 1-{min(len(sessions), 9)}，N 新建空会话，或直接输入消息"
@@ -230,7 +224,7 @@ class TuiAgentApp(App):
         # 任意消息：新建会话并立即发送
         self._selecting_session = False
         self._pending_sessions = []
-        self._do_init_agent(get_api_key())
+        self._do_init_agent(get_api_key(self.config.llm.provider))
         self._run_agent(text)
 
     def _handle_command(self, command: Command, args: str) -> None:
