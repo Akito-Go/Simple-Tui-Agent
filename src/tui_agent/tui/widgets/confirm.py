@@ -8,8 +8,9 @@ class ConfirmWidget(Vertical, can_focus=True):
     """内联权限确认 — 直接嵌入对话流，不改变布局"""
 
     OPTIONS = [
-        ("  ✅ 确认执行", True),
-        ("  ❌ 拒绝执行", False),
+        ("  ✅ 确认执行", "confirm"),
+        ("  ✅ 本次会话全部允许", "allow_session"),
+        ("  ❌ 拒绝执行", "deny"),
     ]
 
     def __init__(self, tool_name: str, summary: str):
@@ -26,7 +27,7 @@ class ConfirmWidget(Vertical, can_focus=True):
             classes="permission-msg",
         ))
         self.mount(Static(
-            "   ↑↓ 选择 · Enter 确认 · Y 同意 · N 拒绝",
+            "   ↑↓ 选择 · Enter 确认 · Y 同意 · A 本会话全允 · N 拒绝",
             classes="confirm-hint",
         ))
         for i, (label, _) in enumerate(self.OPTIONS):
@@ -41,6 +42,14 @@ class ConfirmWidget(Vertical, can_focus=True):
             prefix = "▶" if i == self._selected_idx else " "
             self._option_widgets[i].update(f"{prefix}{label}")
 
+    def _submit(self, action: str) -> None:
+        if action == "allow_session":
+            self.app.on_confirm(True, allow_session=True)
+        elif action == "confirm":
+            self.app.on_confirm(True, allow_session=False)
+        else:
+            self.app.on_confirm(False, allow_session=False)
+
     def key_up(self) -> None:
         self._selected_idx = (self._selected_idx - 1) % len(self.OPTIONS)
         self._refresh_options()
@@ -50,11 +59,13 @@ class ConfirmWidget(Vertical, can_focus=True):
         self._refresh_options()
 
     def key_enter(self) -> None:
-        confirmed = self.OPTIONS[self._selected_idx][1]
-        self.app.on_confirm(confirmed)
+        self._submit(self.OPTIONS[self._selected_idx][1])
 
     def key_y(self) -> None:
-        self.app.on_confirm(True)
+        self._submit("confirm")
+
+    def key_a(self) -> None:
+        self._submit("allow_session")
 
     def key_n(self) -> None:
-        self.app.on_confirm(False)
+        self._submit("deny")

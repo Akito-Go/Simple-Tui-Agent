@@ -1,11 +1,53 @@
 """上下文压缩 — token 估算 + LLM 摘要"""
 
+from __future__ import annotations
+
+from typing import Any
+
 from .manager import SessionManager
 
 
+def _estimate_text_tokens(text: str) -> int:
+    """粗估字符串 token：CJK 约 1 token/字，其余约 4 字符/token。"""
+    if not text:
+        return 0
+    cjk = 0
+    other = 0
+    for ch in text:
+        code = ord(ch)
+        if (
+            0x4E00 <= code <= 0x9FFF
+            or 0x3400 <= code <= 0x4DBF
+            or 0x3040 <= code <= 0x30FF
+            or 0xAC00 <= code <= 0xD7AF
+        ):
+            cjk += 1
+        else:
+            other += 1
+    return cjk + (other + 3) // 4
+
+
+def _estimate_value(value: Any) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, str):
+        return _estimate_text_tokens(value)
+    if isinstance(value, (int, float, bool)):
+        return 1
+    if isinstance(value, dict):
+        return sum(_estimate_value(k) + _estimate_value(v) for k, v in value.items())
+    if isinstance(value, (list, tuple)):
+        return sum(_estimate_value(item) for item in value)
+    return _estimate_text_tokens(str(value))
+
+
 def estimate_tokens(messages: list[dict]) -> int:
-    """简单字符估算 token 数（len(str)/4）"""
-    return len(str(messages)) // 4
+    """估算消息列表 token 数（启发式，用于压缩阈值判断）"""
+    total = 0
+    for message in messages:
+        total += 4  # 每条消息角色开销
+        total += _estimate_value(message)
+    return max(1, total)
 
 
 async def compress_if_needed(
@@ -25,11 +67,12 @@ async def compress_if_needed(
         True 如果执行了压缩
     """
     messages = session.messages
-    if estimate_tokens(messages) <= threshold:
+    estimated = estimate_tokens(messages)
+    session.token_usage.prompt_tokens = estimated
+    if estimated <= threshold:
         return False
 
     # 找到最近 2 轮对话的起始位置
-    # 一轮 = user + assistant(+tool_calls) + tool_results...
     keep_from = len(messages)
     turns_to_keep = 0
     for i in range(len(messages) - 1, 0, -1):
@@ -39,22 +82,16 @@ async def compress_if_needed(
                 keep_from = i
                 break
 
-    # 确保 keep_from 不截断 tool 对
-    # 如果 keep_from 位置是 tool 消息，向前找到对应的 assistant(tool_calls)
     while keep_from < len(messages) and messages[keep_from]["role"] == "tool":
         keep_from += 1
 
     if keep_from <= 1:
-        return False  # 没有可压缩的内容
+        return False
 
-    # 中间消息（system 之后，keep_from 之前）
     middle = messages[1:keep_from]
-
-    # 调用 LLM 生成摘要
     summary = await _generate_summary(llm_provider, middle)
 
-    # 重建消息列表：system + summary(as user) + 最近消息
-    new_messages = [messages[0]]  # system prompt
+    new_messages = [messages[0]]
     new_messages.append({
         "role": "user",
         "content": f"[上下文摘要] 以下是之前对话的摘要，请基于这些信息继续对话:\n{summary}",
@@ -62,6 +99,7 @@ async def compress_if_needed(
     new_messages.extend(messages[keep_from:])
 
     session.messages = new_messages
+    session.token_usage.prompt_tokens = estimate_tokens(new_messages)
     return True
 
 

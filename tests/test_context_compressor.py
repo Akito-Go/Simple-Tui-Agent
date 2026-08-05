@@ -16,6 +16,11 @@ class TestEstimateTokens:
         large = [{"role": "user", "content": "hi"}] * 100
         assert estimate_tokens(large) > estimate_tokens(small) * 10
 
+    def test_cjk_counts_higher_than_ascii(self):
+        ascii_msg = [{"role": "user", "content": "abcd" * 20}]
+        cjk_msg = [{"role": "user", "content": "中文测试内容示例" * 5}]
+        assert estimate_tokens(cjk_msg) > estimate_tokens(ascii_msg)
+
 
 class TestCompressIfNeeded:
     @pytest.mark.asyncio

@@ -189,7 +189,8 @@ python -m tui_agent
 | `/help` | 显示帮助和可用工具 |
 | `/clear` | 清空当前会话 |
 | `/stop` | 停止当前 Agent 运行 |
-| `/model` | 列出/切换模型 |
+| `/model` | 列出/切换模型（跨 Provider 会重建客户端） |
+| `/provider` | 查看/切换 `openai_compat` / `anthropic` |
 | `/status` | 查看运行状态 |
 | `/exit` | 退出（或 Ctrl+C） |
 

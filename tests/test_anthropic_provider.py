@@ -8,7 +8,12 @@ from tui_agent.llm.anthropic_compat import (
     flatten_tools_to_anthropic,
     openai_messages_to_anthropic,
 )
-from tui_agent.llm.factory import create_llm_provider
+from tui_agent.llm.factory import (
+    apply_provider_defaults,
+    create_llm_provider,
+    infer_provider_for_model,
+    normalize_provider_name,
+)
 from tui_agent.llm.openai_compat import OpenAICompatProvider
 
 
@@ -113,3 +118,14 @@ class TestFactory:
         llm = LLMConfig(provider="unknown")
         with pytest.raises(ValueError, match="未知 LLM provider"):
             create_llm_provider(llm, "sk-test")
+
+    def test_infer_provider_for_model(self):
+        assert infer_provider_for_model("claude-sonnet-4-5") == "anthropic"
+        assert infer_provider_for_model("gpt-4o") == "openai_compat"
+        assert infer_provider_for_model("deepseek-chat") is None
+
+    def test_apply_provider_defaults(self):
+        llm = LLMConfig(provider="openai_compat", api_base="https://api.openai.com/v1")
+        apply_provider_defaults(llm, "anthropic")
+        assert normalize_provider_name(llm.provider) == "anthropic"
+        assert "anthropic.com" in llm.api_base

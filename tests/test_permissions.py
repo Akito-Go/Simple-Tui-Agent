@@ -49,3 +49,17 @@ class TestPermissionGuard:
             tool_call = ToolCall(id="call_1", name=name, arguments={})
             decision = guard.check(tool_call, PermissionLevel.READ)
             assert decision == PermissionDecision.ALLOW, f"{name} should be auto-allowed"
+
+    def test_session_allow_all_bypasses_write(self):
+        guard = PermissionGuard()
+        guard.enable_session_allow_all()
+        tool_call = ToolCall(id="call_1", name="write_file", arguments={"path": "a.py", "content": "x"})
+        assert guard.check(tool_call, PermissionLevel.WRITE) == PermissionDecision.ALLOW
+        assert guard.session_allow_all is True
+
+    def test_reset_session_allow_all(self):
+        guard = PermissionGuard()
+        guard.enable_session_allow_all()
+        guard.reset_session_allow_all()
+        tool_call = ToolCall(id="call_1", name="shell_exec", arguments={"command": "ls"})
+        assert guard.check(tool_call, PermissionLevel.SHELL) == PermissionDecision.ASK

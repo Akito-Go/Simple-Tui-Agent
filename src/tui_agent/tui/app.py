@@ -25,15 +25,13 @@ from ..agent.types import (
 )
 from ..config.loader import load_config, get_api_key
 from ..config.schema import AppConfig
-from ..llm.factory import create_llm_provider
-from ..tools.registry import ToolRegistry
-from ..tools.list_dir import ListDirTool
-from ..tools.read_file import ReadFileTool
-from ..tools.glob_search import GlobSearchTool
-from ..tools.grep_search import GrepSearchTool
-from ..tools.write_file import WriteFileTool
-from ..tools.edit_file import EditFileTool
-from ..tools.shell_exec import ShellExecTool
+from ..llm.factory import (
+    apply_provider_defaults,
+    create_llm_provider,
+    infer_provider_for_model,
+    normalize_provider_name,
+)
+from ..tools.builtin import create_default_registry
 from ..tools.workspace import set_workspace_root
 from ..permissions.guard import PermissionGuard
 from ..session.manager import SessionManager
@@ -107,15 +105,7 @@ class TuiAgentApp(App):
         set_workspace_root(Path.cwd().resolve())
         screen = self.screen
         provider = create_llm_provider(self.config.llm, api_key)
-
-        registry = ToolRegistry()
-        registry.register(ListDirTool())
-        registry.register(ReadFileTool())
-        registry.register(GlobSearchTool())
-        registry.register(GrepSearchTool())
-        registry.register(WriteFileTool())
-        registry.register(EditFileTool())
-        registry.register(ShellExecTool())
+        registry = create_default_registry()
 
         if session is not None:
             self.session = session
@@ -236,13 +226,14 @@ class TuiAgentApp(App):
         if command == Command.HELP:
             help_text = """
 📋 内置命令:
-  /help   - 显示此帮助信息
-  /clear  - 清空当前会话
-  /stop   - 停止当前 Agent 运行
-  /model  - 列出可用模型
-  /model <序号|名称> - 切换模型（立即生效）
-  /status - 查看运行状态
-  /exit   - 退出程序
+  /help     - 显示此帮助信息
+  /clear    - 清空当前会话
+  /stop     - 停止当前 Agent 运行
+  /model    - 列出可用模型
+  /model <序号|名称> - 切换模型（跨 Provider 会重建客户端）
+  /provider - 查看/切换 LLM Provider（openai_compat / anthropic）
+  /status   - 查看运行状态
+  /exit     - 退出程序
 
 🛠 可用工具:
   list_dir    - 列出目录内容
@@ -252,6 +243,8 @@ class TuiAgentApp(App):
   write_file  - 写入文件 (需确认)
   edit_file   - 编辑文件 (需确认)
   shell_exec  - 执行非交互命令 (需确认)
+
+权限确认时可选择「本次会话全部允许」。
 """
             chat.add_system_message(help_text)
 
@@ -261,6 +254,8 @@ class TuiAgentApp(App):
                 return
             if self.session:
                 self.session.clear()
+            if self.agent_loop is not None:
+                self.agent_loop.permission_guard.reset_session_allow_all()
             chat.clear()
             chat.add_system_message("会话已清空")
             logger.info("会话已清空")
@@ -268,20 +263,33 @@ class TuiAgentApp(App):
         elif command == Command.MODEL:
             self._handle_model_command(chat, header, args)
 
+        elif command == Command.PROVIDER:
+            self._handle_provider_command(chat, header, args)
+
         elif command == Command.STATUS:
             if self.config and self.session:
+                allow_all = (
+                    self.agent_loop.permission_guard.session_allow_all
+                    if self.agent_loop is not None
+                    else False
+                )
+                est = self.session.token_usage.prompt_tokens
                 status_text = f"""
 📊 运行状态:
+  Provider: {self.config.llm.provider}
   模型: {self.config.llm.model}
   轮次: {self.session.turn_count}/{self.config.max_turns}
   API: {self.config.llm.api_base}
   超时: {self.config.llm.timeout}s
   重试: {self.config.llm.max_retries}次
+  估算 tokens: {est}
+  本会话全允: {"是" if allow_all else "否"}
 """
                 chat.add_system_message(status_text)
             elif self.config:
                 status_text = f"""
 📊 配置状态（尚未选择会话）:
+  Provider: {self.config.llm.provider}
   模型: {self.config.llm.model}
   API: {self.config.llm.api_base}
   超时: {self.config.llm.timeout}s
@@ -330,8 +338,15 @@ class TuiAgentApp(App):
                 save_session(self.session)
             self.exit()
 
+    def _rebuild_llm_provider(self) -> None:
+        """按当前 config.llm 重建 Provider 并挂到 AgentLoop"""
+        if self.config is None or self.agent_loop is None:
+            return
+        api_key = get_api_key(self.config.llm.provider)
+        self.agent_loop.llm_provider = create_llm_provider(self.config.llm, api_key)
+
     def _handle_model_command(self, chat: ChatWidget, header: HeaderWidget, args: str) -> None:
-        """列出或切换模型"""
+        """列出或切换模型（必要时跨 Provider 重建客户端）"""
         if not self.config:
             chat.add_system_message("Agent 未初始化")
             return
@@ -340,10 +355,13 @@ class TuiAgentApp(App):
         current = self.config.llm.model
 
         if not args or args == "list":
-            lines = [f"📦 可用模型（当前: {current}）:"]
+            lines = [
+                f"📦 可用模型（当前: {current} · provider={self.config.llm.provider}）:"
+            ]
             for index, model in enumerate(models, start=1):
+                inferred = infer_provider_for_model(model) or self.config.llm.provider
                 mark = "  ← 当前" if model == current else ""
-                lines.append(f"  {index}. {model}{mark}")
+                lines.append(f"  {index}. {model}  [{inferred}]{mark}")
             lines.append("")
             lines.append("切换: /model <序号> 或 /model <模型名>")
             chat.add_system_message("\n".join(lines))
@@ -363,9 +381,24 @@ class TuiAgentApp(App):
             )
             return
 
+        old_provider = normalize_provider_name(self.config.llm.provider)
+        inferred = infer_provider_for_model(target)
+        new_provider = inferred or old_provider
+        provider_changed = new_provider != old_provider
+
         self.config.llm.model = target
-        if self.agent_loop is not None:
+        if provider_changed:
+            apply_provider_defaults(self.config.llm, new_provider)
+            try:
+                self._rebuild_llm_provider()
+            except ValueError as e:
+                # 回滚 provider，至少保留模型名切换提示
+                apply_provider_defaults(self.config.llm, old_provider)
+                chat.add_system_message(f"❌ 切换 Provider 失败: {e}")
+                return
+        elif self.agent_loop is not None:
             self.agent_loop.llm_provider.model = target
+
         if self.session is not None:
             self.session.set_model(target)
 
@@ -375,7 +408,60 @@ class TuiAgentApp(App):
             turn=turn,
             max_turns=self.config.max_turns,
         )
-        chat.add_system_message(f"✅ 已切换模型: {target}")
+        if provider_changed:
+            chat.add_system_message(
+                f"✅ 已切换模型: {target}\n   Provider: {old_provider} → {new_provider}"
+            )
+        else:
+            chat.add_system_message(f"✅ 已切换模型: {target}")
+
+    def _handle_provider_command(self, chat: ChatWidget, header: HeaderWidget, args: str) -> None:
+        """查看或切换 LLM Provider"""
+        if not self.config:
+            chat.add_system_message("Agent 未初始化")
+            return
+
+        current = normalize_provider_name(self.config.llm.provider)
+        if not args or args == "list":
+            chat.add_system_message(
+                "🔌 Provider:\n"
+                f"  当前: {current}\n"
+                "  可选: openai_compat / anthropic\n"
+                "切换: /provider <名称>"
+            )
+            return
+
+        try:
+            target = normalize_provider_name(args)
+            if target not in ("openai_compat", "anthropic"):
+                raise ValueError(f"未知 provider: {args}")
+        except ValueError as e:
+            chat.add_system_message(str(e))
+            return
+
+        if target == current:
+            chat.add_system_message(f"已经是 {current}")
+            return
+
+        old = current
+        apply_provider_defaults(self.config.llm, target)
+        try:
+            self._rebuild_llm_provider()
+        except ValueError as e:
+            apply_provider_defaults(self.config.llm, old)
+            chat.add_system_message(f"❌ 切换失败: {e}")
+            return
+
+        header.update_status(
+            model=self.config.llm.model,
+            turn=self.session.turn_count if self.session else 0,
+            max_turns=self.config.max_turns,
+        )
+        chat.add_system_message(
+            f"✅ Provider: {old} → {target}\n"
+            f"   API: {self.config.llm.api_base}\n"
+            f"   模型仍为: {self.config.llm.model}（可用 /model 切换）"
+        )
 
     def _set_input_mode(self, *, waiting_confirm: bool) -> None:
         """切换底部输入框状态"""
@@ -398,15 +484,20 @@ class TuiAgentApp(App):
         chat.scroll_end(animate=False)
         self._set_input_mode(waiting_confirm=True)
 
-    def on_confirm(self, confirmed: bool) -> None:
-        """用户确认/拒绝回调"""
+    def on_confirm(self, confirmed: bool, allow_session: bool = False) -> None:
+        """用户确认/拒绝回调；allow_session=True 表示本会话 WRITE/SHELL 全放行"""
         screen = self.screen
-        # 移除确认组件（通过 classes 查找）
         confirm = screen.query_one(".confirm-inline")
         confirm.remove()
 
         self._waiting_confirmation = False
         self._set_input_mode(waiting_confirm=False)
+
+        if confirmed and allow_session and self.agent_loop is not None:
+            self.agent_loop.permission_guard.enable_session_allow_all()
+            chat = screen.query_one("#chat", ChatWidget)
+            chat.add_system_message("✅ 已开启：本次会话写入/Shell 操作将自动允许")
+
         self._run_agent_continue(confirmed=confirmed)
 
     def _run_agent(self, user_input: str) -> None:
