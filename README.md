@@ -191,7 +191,7 @@ tui-agent · openai · gpt-4o-mini · 轮次 1/50    就绪
 | `/help` | 显示帮助和可用工具 |
 | `/clear` | 清空当前会话 |
 | `/sessions` | 列出/恢复历史会话（`/sessions <序号>` 直接恢复） |
-| `/stop` | 停止当前 Agent 运行 |
+| `/stop` | 停止当前 Agent 运行（快捷键 `Esc`） |
 | `/model` | 列出/切换模型（跨 Provider 会重建客户端） |
 | `/provider` | 查看/切换 `openai_compat` / `anthropic` |
 | `/status` | 查看运行状态 |
@@ -230,17 +230,14 @@ tui-agent/
 │   ├── llm/                    # OpenAI 兼容 Provider
 │   ├── tui/                    # Textual 界面
 │   │   ├── app.py
-│   │   ├── commands.py         # 6 个内置命令
+│   │   ├── commands.py         # /help /sessions /stop ...
+│   │   ├── welcome.py          # Le+O 欢迎页
 │   │   └── widgets/            # chat / confirm / header / input
 │   └── logging/                # loguru + 脱敏
 ├── tests/
 ├── config/default.yaml
-├── docs/
-│   ├── architecture.md
-│   ├── ai-audit-report.md
-│   └── review-report.md
-├── openspec/
-├── deliverables/
+├── docs/architecture.md
+├── openspec/specs/             # 现行规格（归档/脚手架见 .gitignore）
 ├── .env.example
 └── pyproject.toml
 ```
@@ -268,15 +265,14 @@ python -m pytest tests/ -v
 - Agent Loop、工具系统、权限控制、会话管理均为自实现（未使用 LangChain / AutoGPT 等 Agent SDK）
 - 支持 OpenAI 兼容协议与 Anthropic Messages API（配置切换）
 - API Key 仅环境变量，日志脱敏
-- 支持多模型 / Provider 切换、会话恢复、上下文压缩、`/stop` 终止
+- 支持多模型 / Provider 切换、`/sessions` 会话恢复、上下文压缩
+- `/stop` 与 `Esc` 可随时中断当前任务
 - 工作区沙箱、敏感文件拦截、Shell 高危命令黑名单
 - 权限确认支持「本次会话全部允许」
 
 ## 更多文档
 
 - [架构设计](docs/architecture.md)
-- [AI 产出审计单](docs/ai-audit-report.md)
-- [Review 报告](docs/review-report.md)
 
 ## License
 

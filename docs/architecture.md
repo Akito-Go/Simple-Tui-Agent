@@ -171,7 +171,7 @@ tui-agent/
 ├── .github/
 │   └── copilot-instructions.md    # Copilot 行为规范
 ├── .tui-agent/logs/               # TUI 产品对话日志 (JSONL)
-├── deliverables/                  # 运行截图等验证产物
+├── deliverables/                  # 本地交付物（.gitignore，不推远端）
 ├── docs/                          # 设计文档
 │   └── architecture.md            # 本文档
 ├── openspec/                      # OpenSpec 变更管理
@@ -508,7 +508,7 @@ llm:
 | `/help` | 显示帮助信息 |
 | `/clear` | 清空当前会话（并重置会话级全允） |
 | `/sessions` | 列出/恢复历史会话（`/sessions <序号>` 可直接恢复） |
-| `/stop` | 停止当前 Agent（Task cancel + 协作终止） |
+| `/stop` / `Esc` | 停止当前 Agent（Task cancel + 协作终止） |
 | `/model` | 查看/切换模型（跨 Provider 重建客户端） |
 | `/provider` | 查看/切换 `openai_compat` / `anthropic` |
 | `/status` | 查看运行状态（含估算 tokens） |
@@ -613,7 +613,7 @@ def mock_llm_provider():
 | 测试代码 | `tests/` | 覆盖核心模块 |
 | AI 协作记录 | `.ai_history/logs/` | 每轮对话摘要 |
 | TUI 产品日志 | `.tui-agent/logs/` | JSONL 格式对话记录 |
-| 运行截图 | `deliverables/` | 小游戏实现/运行截图 + `deliverables/README.md` |
+| 运行截图 | `deliverables/`（本地） | 小游戏实现/运行截图，不纳入公开仓 |
 | CI 配置 | `.github/workflows/ci.yml` | 自动回归测试 |
 | 设计文档 | `docs/architecture.md` | 本文档 |
 

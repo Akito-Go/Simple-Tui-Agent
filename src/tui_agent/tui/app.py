@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 
 from textual.app import App
+from textual.binding import Binding
 from textual.widgets import Input
 
 from .screens import MainScreen
@@ -44,6 +45,11 @@ logger = get_logger(__name__)
 class TuiAgentApp(App):
     """TUI Agent 主应用"""
 
+    # Esc 全局优先：运行中 / 等待确认时均可中断（与 /stop 相同）
+    BINDINGS = [
+        Binding("escape", "stop_agent", "Stop", show=False, priority=True),
+    ]
+
     def __init__(self):
         super().__init__()
         self.config: AppConfig | None = None
@@ -54,6 +60,10 @@ class TuiAgentApp(App):
         self._stop_requested: bool = False
         self._agent_task: asyncio.Task | None = None
         self._welcome_shown: bool = False
+
+    def action_stop_agent(self) -> None:
+        """Esc 快捷键：终止当前 Agent / 取消待确认操作"""
+        self._handle_command(Command.STOP, "")
 
     def _update_header(self, status: str = "就绪") -> None:
         """刷新底部状态行（含 provider）"""
@@ -310,7 +320,7 @@ class TuiAgentApp(App):
   /clear    - 清空当前会话
   /sessions - 列出/恢复历史会话
   /sessions <序号> - 直接恢复指定会话
-  /stop     - 停止当前 Agent 运行
+  /stop     - 停止当前 Agent 运行（快捷键 Esc）
   /model    - 列出可用模型
   /model <序号|名称> - 切换模型（跨 Provider 会重建客户端）
   /provider - 查看/切换 LLM Provider（openai_compat / anthropic）

@@ -5,12 +5,12 @@ TBD - created by archiving change add-stop-session-context. Update Purpose after
 ## Requirements
 ### Requirement: /stop 命令终止 Agent 执行
 
-系统 必须 (MUST) 支持 `/stop` 内置命令。当 Agent 正在运行（`_agent_running=True`）时，用户输入 `/stop` 必须 (MUST) 能够提交（优先于「Agent 正在运行」输入拦截），并在下一个 turn/事件边界终止任务，保留已完成的操作结果。
+系统 必须 (MUST) 支持 `/stop` 内置命令，并 必须 (MUST) 提供 `Esc` 快捷键触发相同行为。当 Agent 正在运行（`_agent_running=True`）时，用户输入 `/stop` 或按 `Esc` 必须 (MUST) 能够提交（优先于「Agent 正在运行」输入拦截），并在下一个 turn/事件边界终止任务，保留已完成的操作结果。
 
 #### Scenario: 运行中执行 /stop
 - **给定** Agent 正在执行多轮工具调用
-- **当** 用户输入 `/stop`
-- **那么** 系统 必须 (MUST) 终止当前 Agent Loop 与 `_agent_task`，Header 恢复 🟢 等待输入，chat 显示「任务已停止」
+- **当** 用户输入 `/stop` 或按 `Esc`
+- **那么** 系统 必须 (MUST) 终止当前 Agent Loop 与 `_agent_task`，状态恢复等待输入，chat 显示终止提示
 
 #### Scenario: 空闲时执行 /stop
 - **给定** Agent 处于等待输入状态

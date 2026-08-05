@@ -2,7 +2,7 @@
 
 from textual.widgets import Input
 
-INPUT_PLACEHOLDER = "> 输入消息，或 /help /sessions /model /provider /status /stop /clear /exit"
+INPUT_PLACEHOLDER = "> 输入消息，或 Esc=/stop · /help /sessions /model /status /clear /exit"
 INPUT_PLACEHOLDER_CONFIRM = "> 等待确认：↑↓+Enter · Y 同意 · A 本会话全允 · N 拒绝"
 
 

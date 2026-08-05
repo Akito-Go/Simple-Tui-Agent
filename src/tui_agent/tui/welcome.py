@@ -31,7 +31,7 @@ WELCOME_TIPS: tuple[str, ...] = (
     "只读工具会自动执行；写入与 Shell 会先征求你的确认。",
     "权限确认时按 A，可在本会话跳过后续确认（黑名单仍生效）。",
     "用 /model 切换模型，用 /provider 在 OpenAI 兼容与 Anthropic 间切换。",
-    "任务跑偏时输入 /stop，可立刻中止当前 Agent 循环。",
+    "任务跑偏时按 Esc 或输入 /stop，可立刻中止当前 Agent 循环。",
     "用 /status 查看轮次、估算 tokens 与本会话权限状态。",
     "Shell 高危命令（如 rm -rf /、curl|sh）会被安全策略直接拦截。",
     "直接描述目标即可，例如：帮我梳理这个项目的目录结构。",

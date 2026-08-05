@@ -178,7 +178,7 @@ class MainScreen(Screen):
         yield HeaderWidget()
         with Container(id="input-container"):
             yield Static(
-                "? for shortcuts · /help · 写入/Shell 需确认 · Y/A/N",
+                "? for shortcuts · Esc=/stop · /help · 写入/Shell 需确认 · Y/A/N",
                 id="footer-hint",
             )
             yield InputWidget()
