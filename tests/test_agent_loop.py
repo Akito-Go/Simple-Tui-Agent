@@ -15,6 +15,7 @@ from tui_agent.agent.types import (
 from tui_agent.tools.registry import ToolRegistry
 from tui_agent.tools.list_dir import ListDirTool
 from tui_agent.tools.write_file import WriteFileTool
+from tui_agent.tools.shell_exec import ShellExecTool
 from tui_agent.permissions.guard import PermissionGuard
 from tui_agent.session.manager import SessionManager
 from tests.conftest import MockLLMProvider, MockLLMResponse
@@ -25,6 +26,7 @@ def make_agent(mock_provider: MockLLMProvider) -> AgentLoop:
     registry = ToolRegistry()
     registry.register(ListDirTool())
     registry.register(WriteFileTool())
+    registry.register(ShellExecTool())
 
     return AgentLoop(
         llm_provider=mock_provider,
@@ -111,6 +113,33 @@ class TestAgentLoopToolCall:
 
         # 应该有 PermissionRequest
         assert any(isinstance(e, PermissionRequest) for e in events)
+
+    @pytest.mark.asyncio
+    async def test_blocked_shell_skips_permission_prompt(self, mock_llm_provider):
+        """黑名单 Shell 命令应直接失败，不弹出确认"""
+        mock_llm_provider.set_responses([
+            MockLLMResponse(tool_calls=[
+                {
+                    "id": "call_1",
+                    "function": {
+                        "name": "shell_exec",
+                        "arguments": '{"command": "rm -rf /"}',
+                    },
+                }
+            ]),
+            MockLLMResponse(content="命令被拦截了。"),
+        ])
+
+        agent = make_agent(mock_llm_provider)
+        events = []
+        async for event in agent.run("删根目录"):
+            events.append(event)
+
+        assert not any(isinstance(e, PermissionRequest) for e in events)
+        tool_results = [e for e in events if isinstance(e, ToolCallResult)]
+        assert tool_results
+        assert not tool_results[0].success
+        assert "安全策略" in tool_results[0].output
 
 
 class TestAgentLoopMaxTurns:

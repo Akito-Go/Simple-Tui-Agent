@@ -5,7 +5,7 @@ TBD - created by archiving change implement-tui-coding-agent. Update Purpose aft
 ## Requirements
 ### Requirement: 权限分级策略
 
-系统 必须 (MUST) 实现基于操作类型的权限分级策略：READ 级别工具（list_dir / read_file / glob_search / grep_search）自动执行无需确认；WRITE 级别工具（write_file / edit_file）需用户确认后执行；SHELL 级别工具（shell_exec）需用户确认后执行。
+系统 必须 (MUST) 实现基于操作类型的权限分级策略：READ 级别工具（list_dir / read_file / glob_search / grep_search）自动执行无需确认；WRITE 级别工具（write_file / edit_file）需用户确认后执行；SHELL 级别工具（shell_exec）需用户确认后执行。用户 可以 (MAY) 选择「本次会话全部允许」，之后 WRITE/SHELL 在本会话内跳过确认，直至 `/clear` 或新会话；Shell 黑名单仍必须 (MUST) 生效，且命中黑名单时不得先弹出确认。
 
 #### Scenario: 只读工具自动执行
 - **给定** Agent 调用 `list_dir("./")`

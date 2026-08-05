@@ -49,7 +49,7 @@ class PermissionGuard:
         return PermissionDecision.DENY
 
     def enable_session_allow_all(self) -> None:
-        """本次会话内 WRITE/SHELL 全部自动放行"""
+        """本次会话内 WRITE/SHELL 跳过确认（Shell 黑名单仍生效）"""
         self._session_allow_all = True
         self._pending_confirmation = None
 

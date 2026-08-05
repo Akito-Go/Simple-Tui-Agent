@@ -11,6 +11,7 @@ from .widgets.header import HeaderWidget
 from .widgets.chat import ChatWidget
 from .widgets.input import InputWidget, INPUT_PLACEHOLDER, INPUT_PLACEHOLDER_CONFIRM
 from .widgets.confirm import ConfirmWidget
+from .welcome import WelcomeWidget
 from .commands import parse_command, Command
 
 from ..agent.loop import AgentLoop
@@ -43,12 +44,6 @@ logger = get_logger(__name__)
 class TuiAgentApp(App):
     """TUI Agent 主应用"""
 
-    CSS = """
-    Screen {
-        layout: vertical;
-    }
-    """
-
     def __init__(self):
         super().__init__()
         self.config: AppConfig | None = None
@@ -58,6 +53,46 @@ class TuiAgentApp(App):
         self._agent_running: bool = False
         self._stop_requested: bool = False
         self._agent_task: asyncio.Task | None = None
+        self._welcome_shown: bool = False
+
+    def _update_header(self, status: str = "就绪") -> None:
+        """刷新底部状态行（含 provider）"""
+        if self.config is None:
+            return
+        try:
+            header = self.screen.query_one("#header", HeaderWidget)
+        except Exception:
+            return
+        turn = self.session.turn_count if self.session else 0
+        header.update_status(
+            model=self.config.llm.model,
+            turn=turn,
+            max_turns=self.config.max_turns,
+            status=status,
+            provider=normalize_provider_name(self.config.llm.provider),
+        )
+
+    def _show_welcome(
+        self,
+        chat: ChatWidget,
+        *,
+        recent_sessions: list | None = None,
+    ) -> None:
+        """展示 Claude Code 式左右分栏欢迎页（同一次启动只显示一次）"""
+        if self._welcome_shown or self.config is None:
+            return
+        chat.mount_welcome(
+            WelcomeWidget(
+                provider=normalize_provider_name(self.config.llm.provider),
+                model=self.config.llm.model,
+                cwd=Path.cwd(),
+                max_turns=self.config.max_turns,
+                context_max_tokens=self.config.context_max_tokens,
+                recent_sessions=recent_sessions,
+                rotate_seconds=5.0,
+            )
+        )
+        self._welcome_shown = True
 
     def on_mount(self) -> None:
         """应用挂载后初始化"""
@@ -73,34 +108,24 @@ class TuiAgentApp(App):
         try:
             self.config = load_config()
             api_key = get_api_key(self.config.llm.provider)
-
-            # 检查是否有历史会话
+            # 启动始终进入新会话；历史恢复请用 /sessions
             from ..session.loader import list_sessions
-            sessions = list_sessions()
-            if sessions:
-                self._selecting_session = True
-                chat = screen.query_one("#chat", ChatWidget)
-                lines = ["📂 发现历史会话，输入序号恢复，N 新建空会话，直接输入消息新建，或使用 /help /model /exit:"]
-                for i, s in enumerate(sessions[:9], 1):
-                    preview = s.get("preview", "")
-                    preview_part = f' | "{preview}"' if preview else ""
-                    lines.append(
-                        f"  {i}. {s['last_active']} | {s['model']} | "
-                        f"轮次:{s['turn_count']} 消息:{s['msg_count']}{preview_part}"
-                    )
-                lines.append("  N. 新建空会话")
-                chat.add_system_message("\n".join(lines))
-                self._pending_sessions = sessions
-                return
 
-            self._do_init_agent(api_key)
+            self._do_init_agent(api_key, recent_sessions=list_sessions())
 
         except ValueError as e:
             chat = screen.query_one("#chat", ChatWidget)
             chat.add_error(f"配置错误: {e}")
             logger.error(f"启动失败: {e}")
 
-    def _do_init_agent(self, api_key: str, session: SessionManager | None = None) -> None:
+    def _do_init_agent(
+        self,
+        api_key: str,
+        session: SessionManager | None = None,
+        *,
+        recent_sessions: list | None = None,
+        show_welcome: bool = True,
+    ) -> None:
         """执行 Agent 初始化"""
         set_workspace_root(Path.cwd().resolve())
         screen = self.screen
@@ -123,14 +148,24 @@ class TuiAgentApp(App):
             context_max_tokens=self.config.context_max_tokens,
         )
 
-        header = screen.query_one("#header", HeaderWidget)
-        header.update_status(
-            model=self.config.llm.model,
-            turn=self.session.turn_count,
-            max_turns=self.config.max_turns,
-        )
+        self._update_header()
 
         logger.info(f"Agent 初始化完成, model={self.config.llm.model}")
+        chat = screen.query_one("#chat", ChatWidget)
+        if show_welcome:
+            from ..session.loader import list_sessions
+
+            self._welcome_shown = False
+            self._show_welcome(
+                chat,
+                recent_sessions=recent_sessions if recent_sessions is not None else list_sessions(),
+            )
+        if session is not None:
+            chat.add_system_message(
+                f"已恢复会话 {session.session_id} · "
+                f"provider={normalize_provider_name(self.config.llm.provider)} · "
+                f"model={self.config.llm.model}"
+            )
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """处理用户输入"""
@@ -183,39 +218,84 @@ class TuiAgentApp(App):
         self._run_agent(text)
 
     def _handle_session_selection(self, text: str) -> None:
-        """处理会话选择输入"""
+        """处理 /sessions 触发的会话选择输入"""
         screen = self.screen
         chat = screen.query_one("#chat", ChatWidget)
-        sessions = getattr(self, '_pending_sessions', [])
+        sessions = getattr(self, "_pending_sessions", [])
 
-        if text.upper() in ("N", "NEW"):
+        if text.upper() in ("N", "NEW", "C", "CANCEL", "取消"):
             self._selecting_session = False
             self._pending_sessions = []
-            chat.add_system_message("开始新会话")
-            self._do_init_agent(get_api_key(self.config.llm.provider))
+            chat.add_system_message("已取消会话恢复")
+            self._update_header(status="就绪")
             return
 
         if text.isdigit():
             idx = int(text) - 1
             if 0 <= idx < len(sessions):
-                from ..session.loader import load_session
-                session = load_session(sessions[idx]["filepath"], model=self.config.llm.model)
-                if session:
-                    self._selecting_session = False
-                    self._pending_sessions = []
-                    chat.add_system_message(f"✅ 已恢复会话 {session.session_id}")
-                    self._do_init_agent(get_api_key(self.config.llm.provider), session=session)
-                    return
+                self._resume_session_at(idx)
+                return
             chat.add_system_message(
-                f"无效序号，请输入 1-{min(len(sessions), 9)}，N 新建空会话，或直接输入消息"
+                f"无效序号，请输入 1-{min(len(sessions), 9)}，或 N 取消"
             )
             return
 
-        # 任意消息：新建会话并立即发送
+        chat.add_system_message(
+            f"请输入序号 1-{min(len(sessions), 9)} 恢复会话，或 N 取消"
+        )
+
+    def _list_sessions_for_resume(self) -> None:
+        """列出可恢复会话并进入选择模式"""
+        from ..session.loader import list_sessions
+
+        screen = self.screen
+        chat = screen.query_one("#chat", ChatWidget)
+        sessions = list_sessions()
+        if not sessions:
+            chat.add_system_message("暂无历史会话可恢复")
+            return
+
+        self._selecting_session = True
+        self._pending_sessions = sessions
+        lines = [
+            "📂 历史会话（输入序号恢复，N 取消）",
+        ]
+        for i, s in enumerate(sessions[:9], 1):
+            preview = s.get("preview", "")
+            preview_part = f'  「{preview}」' if preview else ""
+            lines.append(
+                f"  {i}. {s['last_active']} · {s['model']} · "
+                f"轮次 {s['turn_count']} · {s['msg_count']} 条消息{preview_part}"
+            )
+        lines.append("  N. 取消")
+        chat.add_system_message("\n".join(lines))
+        self._update_header(status="选择会话")
+
+    def _resume_session_at(self, idx: int) -> None:
+        """按列表序号恢复会话"""
+        from ..session.loader import list_sessions, load_session
+
+        screen = self.screen
+        chat = screen.query_one("#chat", ChatWidget)
+        sessions = getattr(self, "_pending_sessions", None) or list_sessions()
+        if not (0 <= idx < len(sessions)):
+            chat.add_system_message("无效的会话序号")
+            return
+
+        session = load_session(sessions[idx]["filepath"], model=self.config.llm.model)
+        if session is None:
+            chat.add_system_message("会话加载失败")
+            return
+
         self._selecting_session = False
         self._pending_sessions = []
-        self._do_init_agent(get_api_key(self.config.llm.provider))
-        self._run_agent(text)
+        chat.clear()
+        self._do_init_agent(
+            get_api_key(self.config.llm.provider),
+            session=session,
+            recent_sessions=list_sessions(),
+            show_welcome=True,
+        )
 
     def _handle_command(self, command: Command, args: str) -> None:
         """处理内置命令"""
@@ -228,6 +308,8 @@ class TuiAgentApp(App):
 📋 内置命令:
   /help     - 显示此帮助信息
   /clear    - 清空当前会话
+  /sessions - 列出/恢复历史会话
+  /sessions <序号> - 直接恢复指定会话
   /stop     - 停止当前 Agent 运行
   /model    - 列出可用模型
   /model <序号|名称> - 切换模型（跨 Provider 会重建客户端）
@@ -250,15 +332,44 @@ class TuiAgentApp(App):
 
         elif command == Command.CLEAR:
             if getattr(self, "_selecting_session", False):
-                chat.add_system_message("会话选择中，请先用序号恢复或输入消息新建")
-                return
+                self._selecting_session = False
+                self._pending_sessions = []
             if self.session:
                 self.session.clear()
             if self.agent_loop is not None:
                 self.agent_loop.permission_guard.reset_session_allow_all()
             chat.clear()
+            from ..session.loader import list_sessions
+
+            self._welcome_shown = False
+            self._show_welcome(chat, recent_sessions=list_sessions())
             chat.add_system_message("会话已清空")
+            self._update_header(status="就绪")
             logger.info("会话已清空")
+
+        elif command == Command.SESSIONS:
+            if self._agent_running or self._waiting_confirmation:
+                chat.add_system_message("请先等待当前任务结束，或使用 /stop")
+                return
+            args = (args or "").strip()
+            if not args:
+                self._list_sessions_for_resume()
+            elif args.isdigit():
+                from ..session.loader import list_sessions
+
+                sessions = list_sessions()
+                self._pending_sessions = sessions
+                idx = int(args) - 1
+                if sessions and 0 <= idx < len(sessions):
+                    self._resume_session_at(idx)
+                else:
+                    chat.add_system_message(
+                        f"无效序号，请输入 1-{min(len(sessions), 9)}（当前共 {len(sessions)} 个）"
+                        if sessions
+                        else "暂无历史会话可恢复"
+                    )
+            else:
+                chat.add_system_message("用法: /sessions  或  /sessions <序号>")
 
         elif command == Command.MODEL:
             self._handle_model_command(chat, header, args)
@@ -317,12 +428,7 @@ class TuiAgentApp(App):
                     self._agent_task = None
                 self._agent_running = False
                 chat.add_system_message("⏹ 已终止等待确认的任务")
-                header.update_status(
-                    model=self.config.llm.model,
-                    turn=self.session.turn_count if self.session else 0,
-                    max_turns=self.config.max_turns,
-                    status="🟢 等待输入",
-                )
+                self._update_header(status="就绪")
             elif self._agent_running:
                 self._stop_requested = True
                 if self._agent_task is not None:
@@ -403,11 +509,7 @@ class TuiAgentApp(App):
             self.session.set_model(target)
 
         turn = self.session.turn_count if self.session else 0
-        header.update_status(
-            model=target,
-            turn=turn,
-            max_turns=self.config.max_turns,
-        )
+        self._update_header()
         if provider_changed:
             chat.add_system_message(
                 f"✅ 已切换模型: {target}\n   Provider: {old_provider} → {new_provider}"
@@ -452,11 +554,7 @@ class TuiAgentApp(App):
             chat.add_system_message(f"❌ 切换失败: {e}")
             return
 
-        header.update_status(
-            model=self.config.llm.model,
-            turn=self.session.turn_count if self.session else 0,
-            max_turns=self.config.max_turns,
-        )
+        self._update_header()
         chat.add_system_message(
             f"✅ Provider: {old} → {target}\n"
             f"   API: {self.config.llm.api_base}\n"
@@ -496,7 +594,9 @@ class TuiAgentApp(App):
         if confirmed and allow_session and self.agent_loop is not None:
             self.agent_loop.permission_guard.enable_session_allow_all()
             chat = screen.query_one("#chat", ChatWidget)
-            chat.add_system_message("✅ 已开启：本次会话写入/Shell 操作将自动允许")
+            chat.add_system_message(
+                "已开启：本次会话写入/Shell 将跳过确认（黑名单仍生效）"
+            )
 
         self._run_agent_continue(confirmed=confirmed)
 
@@ -511,12 +611,7 @@ class TuiAgentApp(App):
         chat.add_user_message(user_input)
         chat.show_thinking()
 
-        header.update_status(
-            model=self.config.llm.model,
-            turn=self.session.turn_count,
-            max_turns=self.config.max_turns,
-            status="🔴 运行中",
-        )
+        self._update_header(status="运行中")
 
         self._agent_running = True
         self._stop_requested = False
@@ -529,12 +624,7 @@ class TuiAgentApp(App):
 
         screen = self.screen
         header = screen.query_one("#header", HeaderWidget)
-        header.update_status(
-            model=self.config.llm.model,
-            turn=self.session.turn_count,
-            max_turns=self.config.max_turns,
-            status="🔴 运行中",
-        )
+        self._update_header(status="运行中")
 
         self._agent_running = True
         self._stop_requested = False
@@ -553,12 +643,7 @@ class TuiAgentApp(App):
                 # 每次迭代前检查 stop
                 if self._stop_requested:
                     chat.add_system_message("⏹ 任务已终止")
-                    header.update_status(
-                        model=self.config.llm.model,
-                        turn=self.session.turn_count,
-                        max_turns=self.config.max_turns,
-                        status="🟢 等待输入",
-                    )
+                    self._update_header(status="就绪")
                     self._agent_running = False
                     self._stop_requested = False
                     return
@@ -576,12 +661,7 @@ class TuiAgentApp(App):
                         "arguments": event.arguments,
                         "auto": is_auto,
                     }
-                    header.update_status(
-                        model=self.config.llm.model,
-                        turn=self.session.turn_count,
-                        max_turns=self.config.max_turns,
-                        status=f"🔴 执行 {event.name}",
-                    )
+                    self._update_header(status=f"执行 {event.name}")
                     chat.show_tool_running(event.name, event.arguments)
 
                 elif isinstance(event, ToolCallResult):
@@ -594,12 +674,7 @@ class TuiAgentApp(App):
                             success=event.success,
                         )
                         pending_tool = None
-                    header.update_status(
-                        model=self.config.llm.model,
-                        turn=self.session.turn_count,
-                        max_turns=self.config.max_turns,
-                        status="🔴 运行中",
-                    )
+                    self._update_header(status="运行中")
 
                 elif isinstance(event, PermissionRequest):
                     chat.hide_thinking()
@@ -607,12 +682,7 @@ class TuiAgentApp(App):
                         chat.finish_streaming()
                     self._show_confirm_widget(event.name, event.summary)
                     self._waiting_confirmation = True
-                    header.update_status(
-                        model=self.config.llm.model,
-                        turn=self.session.turn_count,
-                        max_turns=self.config.max_turns,
-                        status="🟡 等待确认",
-                    )
+                    self._update_header(status="等待确认")
                     return
 
                 elif isinstance(event, PermissionDenied):
@@ -624,31 +694,16 @@ class TuiAgentApp(App):
                         chat.finish_streaming()
                     elif event.message:
                         chat.add_assistant_message(event.message)
-                    header.update_status(
-                        model=self.config.llm.model,
-                        turn=self.session.turn_count,
-                        max_turns=self.config.max_turns,
-                        status="🟢 等待输入",
-                    )
+                    self._update_header(status="就绪")
                     self._agent_running = False
 
                 elif isinstance(event, AgentError):
                     chat.add_error(event.message)
-                    header.update_status(
-                        model=self.config.llm.model,
-                        turn=self.session.turn_count,
-                        max_turns=self.config.max_turns,
-                        status="🟢 等待输入",
-                    )
+                    self._update_header(status="就绪")
                     self._agent_running = False
 
         except Exception as e:
             chat.add_error(f"Agent 异常: {e}")
             logger.error(f"Agent 异常: {e}")
-            header.update_status(
-                model=self.config.llm.model,
-                turn=self.session.turn_count,
-                max_turns=self.config.max_turns,
-                status="🟢 等待输入",
-            )
+            self._update_header(status="就绪")
             self._agent_running = False

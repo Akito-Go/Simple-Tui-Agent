@@ -21,28 +21,51 @@ TBD - created by archiving change implement-tui-coding-agent. Update Purpose aft
 - **当** 用户输入 `/clear`
 - **那么** 系统 必须 (MUST) 清空会话历史和 TUI 对话区，显示空对话界面
 
+### Requirement: 会话恢复命令
+
+系统 必须 (MUST) 支持 `/sessions` 内置命令：无参数时列出历史会话并进入选择态；带数字参数时直接恢复对应会话。
+
+#### Scenario: 列出历史会话
+- **给定** 存在可恢复会话
+- **当** 用户输入 `/sessions`
+- **那么** 系统 必须 (MUST) 显示序号列表，并等待用户输入序号或 N 取消
+
+#### Scenario: 直接恢复
+- **给定** 至少存在 1 个历史会话
+- **当** 用户输入 `/sessions 1`
+- **那么** 系统 必须 (MUST) 加载该会话并替换当前会话上下文
+
 ### Requirement: 模型查看与切换命令
 
-系统 必须 (MUST) 支持 `/model` 内置命令。无参数时显示当前使用的模型名称；带参数时切换至指定模型。
+系统 必须 (MUST) 支持 `/model` 内置命令。无参数时显示可用模型列表与当前模型；带参数时切换至指定模型。若模型隐含不同 Provider，系统 必须 (MUST) 重建 LLM 客户端。
 
 #### Scenario: 查看当前模型
 - **给定** 当前模型为 `gpt-4o`
 - **当** 用户输入 `/model`
-- **那么** 系统 必须 (MUST) 显示「当前模型: gpt-4o」
+- **那么** 系统 必须 (MUST) 显示可用模型列表，并标注当前模型
 
 #### Scenario: 切换模型
 - **给定** 用户输入 `/model gpt-4o-mini`
 - **当** 模型名称有效
 - **那么** 系统 必须 (MUST) 切换至 `gpt-4o-mini` 并显示确认信息
 
+### Requirement: Provider 切换命令
+
+系统 必须 (MUST) 支持 `/provider` 内置命令，用于查看或切换 `openai_compat` / `anthropic`。
+
+#### Scenario: 切换 Provider
+- **给定** 当前 provider 为 `openai_compat`
+- **当** 用户输入 `/provider anthropic`
+- **那么** 系统 必须 (MUST) 切换 provider、校正 api_base，并重建 LLM 客户端
+
 ### Requirement: 状态查看命令
 
-系统 必须 (MUST) 支持 `/status` 内置命令，显示当前运行状态，包括当前模型、已用轮次/最大轮次、Token 用量和配置摘要。
+系统 必须 (MUST) 支持 `/status` 内置命令，显示当前运行状态，包括 Provider、当前模型、已用轮次/最大轮次、估算 Token 与配置摘要。
 
 #### Scenario: 查看运行状态
 - **给定** Agent 已完成 3 轮对话
 - **当** 用户输入 `/status`
-- **那么** 系统 必须 (MUST) 显示模型名、轮次 3/20、Token 用量和关键配置项
+- **那么** 系统 必须 (MUST) 显示 Provider、模型名、轮次、估算 tokens 和关键配置项
 
 ### Requirement: 退出命令
 

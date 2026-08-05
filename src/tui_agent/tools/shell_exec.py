@@ -3,12 +3,16 @@
 import asyncio
 
 from .base import ToolBase, ToolResult, PermissionLevel
+from .shell_policy import check_shell_command
 from .workspace import get_workspace_root, resolve_in_workspace
 
 
 class ShellExecTool(ToolBase):
     name = "shell_exec"
-    description = "执行非交互式 Shell 命令（不支持需要终端输入的程序），返回 stdout、stderr 和退出码"
+    description = (
+        "执行非交互式 Shell 命令（不支持需要终端输入的程序），"
+        "返回 stdout、stderr 和退出码。高危命令会被安全策略拦截。"
+    )
     parameters = {
         "type": "object",
         "properties": {
@@ -26,6 +30,10 @@ class ShellExecTool(ToolBase):
     permission_level = PermissionLevel.SHELL
 
     async def execute(self, command: str, cwd: str | None = None) -> ToolResult:
+        blocked = check_shell_command(command)
+        if blocked:
+            return ToolResult.fail(blocked)
+
         try:
             if cwd is None:
                 cwd_path = get_workspace_root()
@@ -62,7 +70,7 @@ class ShellExecTool(ToolBase):
 
             if process.returncode != 0:
                 return ToolResult(
-                    success=True,  # 命令执行了，即使退出码非零
+                    success=True,
                     output=f"[退出码: {process.returncode}]\n{output}",
                 )
 

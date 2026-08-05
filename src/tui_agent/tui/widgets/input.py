@@ -2,8 +2,8 @@
 
 from textual.widgets import Input
 
-INPUT_PLACEHOLDER = "输入消息或命令 (/help /clear /stop /model /status /exit)..."
-INPUT_PLACEHOLDER_CONFIRM = "等待工具确认：↑↓ + Enter，或按 Y/N"
+INPUT_PLACEHOLDER = "> 输入消息，或 /help /sessions /model /provider /status /stop /clear /exit"
+INPUT_PLACEHOLDER_CONFIRM = "> 等待确认：↑↓+Enter · Y 同意 · A 本会话全允 · N 拒绝"
 
 
 class InputWidget(Input):

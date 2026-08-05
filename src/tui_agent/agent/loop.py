@@ -187,6 +187,21 @@ class AgentLoop:
                 )
                 continue
 
+            # Shell 黑名单：确认前即拦截，避免用户确认后仍被拒绝
+            if tool_name == "shell_exec":
+                from ..tools.shell_policy import check_shell_command
+
+                blocked = check_shell_command(str(arguments.get("command", "")))
+                if blocked:
+                    self.session.add_tool_result(tc["id"], tool_name, blocked)
+                    yield ToolCallResult(
+                        tool_id=tc["id"],
+                        name=tool_name,
+                        success=False,
+                        output=blocked,
+                    )
+                    continue
+
             tool_call_obj = ToolCall(id=tc["id"], name=tool_name, arguments=arguments)
             decision = self.permission_guard.check(tool_call_obj, tool.permission_level)
 

@@ -55,8 +55,8 @@
 | 2 | Agent Loop（推理→工具→回传） | ✅ | `agent/loop.py` |
 | 3 | 7 个工具 | ✅ | `tools/list_dir.py` ~ `tools/shell_exec.py` |
 | 4 | 权限分级（只读自动/写入确认） | ✅ | `permissions/guard.py` |
-| 5 | OpenAI 兼容 API 接入 | ✅ | `llm/openai_compat.py` (openai SDK) |
-| 6 | 流式输出 | ✅ | `llm/openai_compat.py` → `_handle_stream` |
+| 5 | OpenAI / Anthropic 接入 | ✅ | `llm/openai_compat.py` + `llm/anthropic_compat.py` + `factory.py` |
+| 6 | 流式输出 | ✅ | Provider `_handle_stream` 统一事件契约 |
 | 7 | 超时控制 | ✅ | `llm/retry.py` + asyncio.wait_for |
 | 8 | 重试机制 | ✅ | `llm/retry.py` — 指数退避，仅网络错误 |
 | 9 | 多轮会话上下文 | ✅ | `session/manager.py` |
@@ -64,11 +64,13 @@
 | 11 | 配置三级优先级 | ✅ | `config/loader.py` |
 | 12 | 6 个内置命令 | ✅ | `tui/commands.py`（含 `/stop`） |
 | 13 | 日志脱敏 | ✅ | `logging/logger.py` — sanitize filter |
-| 14 | 多模型切换 | ✅ | `/model` 命令 + `TUI_AGENT_MODELS` 配置 |
+| 14 | 多模型/Provider 切换 | ✅ | `/model` `/provider` + 跨 Provider 重建客户端 |
+| 14b | Shell 黑名单 | ✅ | `tools/shell_policy.py` |
+| 14c | 会话级权限全允 | ✅ | ConfirmWidget + `PermissionGuard.enable_session_allow_all` |
 | 15 | 权限确认交互 | ✅ | `tui/widgets/confirm.py` — ↑↓ 选择 |
 | 16 | 思考中/执行中动画 | ✅ | `chat.py` — spinner frames |
 | 17 | /stop 命令 | ✅ | `tui/commands.py` + `tui/app.py` — 标志位 + task cancel |
-| 18 | 会话恢复 | ✅ | `session/loader.py` — list_sessions + load_session |
+| 18 | 会话恢复 | ✅ | `/sessions` + `session/loader.py` — list_sessions + load_session |
 | 19 | 上下文压缩 | ✅ | `session/compressor.py` — estimate_tokens + compress_if_needed |
 | 20 | 增量持久化 | ✅ | `session/storage.py` — 按消息索引跟踪 |
 | 21 | 会话恢复兼容 | ✅ | `session/loader.py` — sanitize + normalize |

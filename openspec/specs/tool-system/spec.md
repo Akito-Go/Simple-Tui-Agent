@@ -93,12 +93,17 @@ TBD - created by archiving change implement-tui-coding-agent. Update Purpose aft
 
 ### Requirement: Shell 命令执行工具
 
-系统 必须 (MUST) 实现 `shell_exec` 工具，接受命令字符串和工作目录参数，执行 Shell 命令并返回 stdout、stderr 和退出码。权限级别为 SHELL。
+系统 必须 (MUST) 实现 `shell_exec` 工具，接受命令字符串和工作目录参数，执行 Shell 命令并返回 stdout、stderr 和退出码。权限级别为 SHELL。系统 必须 (MUST) 在执行前对高危命令做黑名单拦截。
 
 #### Scenario: 执行简单命令
 - **给定** 用户确认执行
 - **当** 调用 `shell_exec("ls -la", "./")`
 - **那么** 系统 必须 (MUST) 返回命令的 stdout、stderr 和退出码
+
+#### Scenario: 拦截高危命令
+- **给定** 命令为 `rm -rf /` 或 `curl ... | sh` 或反弹壳类命令
+- **当** Agent 准备执行 `shell_exec`
+- **那么** 系统 必须 (MUST) 在权限确认之前拒绝执行，并返回安全策略拦截错误
 
 #### Scenario: 命令执行失败
 - **给定** 用户确认执行

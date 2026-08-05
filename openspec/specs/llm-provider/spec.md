@@ -1,7 +1,8 @@
 # llm-provider Specification
 
 ## Purpose
-TBD - created by archiving change implement-tui-coding-agent. Update Purpose after archive.
+通过可插拔 LLM Provider 接入 OpenAI 兼容协议与 Anthropic Messages API，统一流式事件契约供 Agent Loop 消费。
+
 ## Requirements
 ### Requirement: OpenAI 兼容协议接入
 
@@ -11,6 +12,20 @@ TBD - created by archiving change implement-tui-coding-agent. Update Purpose aft
 - **给定** 配置了 OpenAI-compatible API 的 base_url 和 api_key
 - **当** Agent Loop 调用 `llm_provider.chat(messages, tools)`
 - **那么** 系统 必须 (MUST) 通过 openai SDK 向指定 base_url 发起请求，携带 messages 和 tools 参数
+
+### Requirement: Anthropic Messages API 接入
+
+系统 必须 (MUST) 在 `provider=anthropic` 时通过 anthropic SDK 接入 Messages API（含 tool use），并在 Provider 边界将内部 OpenAI 风格消息转换为 Anthropic 格式。
+
+#### Scenario: 创建 Anthropic Provider
+- **给定** 配置 `provider` 为 `anthropic` 且提供 API Key
+- **当** 工厂创建 LLM Provider
+- **那么** 系统 必须 (MUST) 返回 Anthropic Provider，默认 `api_base` 为 Anthropic 官方地址
+
+#### Scenario: 未安装 anthropic 包
+- **给定** 环境未安装 `anthropic`
+- **当** 使用 OpenAI 兼容 Provider 启动
+- **那么** 系统 必须 (MUST) 仍可正常启动（Anthropic 依赖按需导入）
 
 ### Requirement: 工具调用解析
 

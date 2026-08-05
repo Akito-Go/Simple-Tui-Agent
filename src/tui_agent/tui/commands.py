@@ -1,4 +1,4 @@
-"""内置命令处理 — /help /clear /model /provider /status /exit"""
+"""内置命令处理 — /help /clear /sessions /model /provider /status /exit"""
 
 from dataclasses import dataclass
 from enum import Enum
@@ -7,6 +7,7 @@ from enum import Enum
 class Command(str, Enum):
     HELP = "/help"
     CLEAR = "/clear"
+    SESSIONS = "/sessions"
     MODEL = "/model"
     PROVIDER = "/provider"
     STATUS = "/status"

@@ -51,7 +51,7 @@
 │  │  │  │  Footer: 输入框 + 内置命令提示                     │  │ │ │
 │  │  │  └────────────────────────────────────────────────────┘  │ │ │
 │  │  └──────────────────────────────────────────────────────────┘ │ │
-│  │  内置命令: /help /clear /stop /model /status /exit            │ │
+│  │  内置命令: /help /clear /sessions /stop /model /provider ...  │ │
 │  └───────────────────────────────┬───────────────────────────────┘ │
 │                                  │                                  │
 │  ┌───────────────────────────────┼───────────────────────────────┐ │
@@ -199,6 +199,8 @@ tui-agent/
 │       │   ├── write_file.py      # 文件写入
 │       │   ├── edit_file.py       # 文件编辑
 │       │   ├── shell_exec.py      # Shell 命令执行
+│       │   ├── shell_policy.py    # Shell 高危命令黑名单
+│       │   ├── builtin.py         # 内置工具注册
 │       │   └── workspace.py       # 工作区沙箱（路径边界校验）
 │       ├── permissions/
 │       │   ├── __init__.py
@@ -218,6 +220,8 @@ tui-agent/
 │       │   ├── __init__.py
 │       │   ├── provider.py        # LLM Provider 抽象基类
 │       │   ├── openai_compat.py   # OpenAI 兼容协议
+│       │   ├── anthropic_compat.py# Anthropic Messages API
+│       │   ├── factory.py         # Provider 工厂（按需导入）
 │       │   └── retry.py           # 超时控制 + 重试逻辑
 │       ├── tui/
 │       │   ├── __init__.py
@@ -227,7 +231,7 @@ tui-agent/
 │       │   │   ├── chat.py        # 对话流组件
 │       │   │   ├── input.py       # 输入框组件
 │       │   │   └── header.py      # 状态栏组件
-│       │   └── commands.py        # 内置命令 (/help /clear /stop /model /status /exit)
+│       │   └── commands.py        # 内置命令 (/help /clear /sessions /stop /model ...)
 │       └── logging/
 │           ├── __init__.py
 │           └── logger.py          # 日志系统 (loguru 配置 + 脱敏)
@@ -243,7 +247,8 @@ tui-agent/
 │   ├── test_session_loader.py
 │   ├── test_stop_command.py
 │   ├── test_workspace.py
-│   └── test_tools.py              # 101 用例合计
+│   ├── test_shell_policy.py       # Shell 黑名单
+│   └── test_tools.py              # 全量用例合计
 ├── .github/workflows/ci.yml       # GitHub Actions 自动测试
 ├── config/
 │   └── default.yaml               # 默认配置模板
@@ -421,7 +426,7 @@ class OpenAICompatProvider(LLMProvider):
 
 **会话恢复**（`loader.py`）：
 
-- 启动时 `list_sessions()` 扫描历史（时间、模型、轮次、消息预览）
+- `/sessions` 调用 `list_sessions()` 扫描历史（时间、模型、轮次、消息预览）；启动不自动弹出
 - `load_session()` 还原消息 → `_sanitize_messages()` → `_normalize_message_sequence()` 合并连续 assistant，避免 API `bad_request`
 - 恢复后 `_saved_message_count` 对齐，后续增量写入
 
@@ -450,17 +455,24 @@ class OpenAICompatProvider(LLMProvider):
 **默认配置**（`config/default.yaml`）：
 
 ```yaml
-provider: openai_compat
-model: deepseek/deepseek-v4-flash
-api_base: https://api.openai.com/v1
-timeout: 120
 max_turns: 50
-max_retries: 3
 context_max_tokens: 32000
+available_models:
+  - gpt-4o-mini
+  - gpt-4o
+  - claude-sonnet-4-5
+  - deepseek-chat
+llm:
+  provider: openai_compat   # 或 anthropic
+  model: gpt-4o-mini
+  api_base: https://api.openai.com/v1
+  timeout: 120
+  max_retries: 3
 ```
 
 **API Key 保护**：
-- 仅从环境变量 `TUI_AGENT_API_KEY` 读取
+- OpenAI 兼容：`TUI_AGENT_API_KEY` / `OPENAI_API_KEY`
+- Anthropic：`ANTHROPIC_API_KEY`（`provider=anthropic`）
 - 不写入任何配置文件
 - 日志输出前脱敏：`sk-xxx...` → `sk-***`
 
@@ -470,42 +482,44 @@ context_max_tokens: 32000
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  TUI Agent · gpt-4o · turn 3/20                        🔴   │  ← Header
-├──────────────────────────────────────────────────────────────┤
-│                                                              │
+│ ╭ Le+O · tui-agent v0.1.0 ───────┬─ 入门提示 / 最近活动 ───╮ │
+│ │ 欢迎回来 + Q 版小猫块字        │  Tips · /sessions 提示  │ │
+│ ╰────────────────────────────────┴─────────────────────────╯ │
 │  👤 帮我创建一个 Python 俄罗斯方块游戏                        │  ← Body
-│                                                              │  (对话流)
 │  🤖 好的，我先看看项目结构...                                 │
-│                                                              │
-│  ⚡ list_dir("./")                              ✓ 自动执行    │
-│     src/  tests/  pyproject.toml                             │
-│                                                              │
-│  🤖 项目结构清晰，我来创建游戏文件...                          │
-│                                                              │
-│  ⚡ write_file("tetris.py")                     ⚠ 需确认    │
-│     将写入 200 行代码到 tetris.py                             │
-│     [Y] 确认  [N] 拒绝  [D] 查看差异                          │
-│                                                              │
+│  ● list_dir(path=.)                                           │
+│    ⎿ src/ tests/ ...                                          │
+│  ╔ ⚠ 需要确认 ════════════════════════════╗                   │
+│  ║ ❯ 1. 确认执行 / 2. 本会话全允 / 3. 拒绝║                   │
+│  ╚════════════════════════════════════════╝                   │
 ├──────────────────────────────────────────────────────────────┤
-│  > _                                          tokens: 1.2k   │  ← Footer
+│  /help · 写入/Shell 需确认 · Y/A/N                            │  ← Footer
+│  > _                                                         │
+│  tui-agent · openai · gpt-4o · 轮次 3/50    运行中            │  ← Status
 └──────────────────────────────────────────────────────────────┘
 ```
 
-**6 个内置命令**：
+
+
+**内置命令**：
 
 | 命令 | 功能 |
 |------|------|
 | `/help` | 显示帮助信息 |
-| `/clear` | 清空当前会话 |
+| `/clear` | 清空当前会话（并重置会话级全允） |
+| `/sessions` | 列出/恢复历史会话（`/sessions <序号>` 可直接恢复） |
 | `/stop` | 停止当前 Agent（Task cancel + 协作终止） |
-| `/model` | 查看/切换当前模型 |
-| `/status` | 查看运行状态 |
+| `/model` | 查看/切换模型（跨 Provider 重建客户端） |
+| `/provider` | 查看/切换 `openai_compat` / `anthropic` |
+| `/status` | 查看运行状态（含估算 tokens） |
 | `/exit` | 退出程序 (或 Ctrl+C) |
 
-**会话选择**（启动时有历史会话）：
+**Shell 安全**：`shell_exec` 在权限确认前即经 `shell_policy` 黑名单拦截（`rm -rf /`、家目录删除、`curl|sh`、反弹壳、fork bomb 等）。「本会话全部允许」不绕过黑名单。
 
-- 输入序号恢复；`N` 新建空会话；直接输入消息新建并发送
-- 选择阶段支持 `/help`、`/model`、`/status`、`/exit`
+**会话恢复**（`/sessions`）：
+
+- 启动始终进入新会话 + 欢迎页；不自动弹出历史列表
+- `/sessions` 列出历史；输入序号恢复，`N` 取消；`/sessions <n>` 直接恢复
 
 ### 4.8 日志系统 (`logging/`)
 

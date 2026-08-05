@@ -1,12 +1,16 @@
-"""对话流组件"""
+"""对话流组件 — Claude Code 工具树 + 用户/助手图标"""
 
 import re
 
+from textual.widget import Widget
 from textual.widgets import Static
 from textual.containers import VerticalScroll
 
 STATUS_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 TOOL_SPINNER_FRAMES = STATUS_SPINNER_FRAMES
+
+ASSISTANT_ICON = "🤖"
+USER_ICON = "👤"
 
 
 def _format_tool_args(arguments: dict, max_len: int = 80) -> str:
@@ -28,13 +32,52 @@ def _normalize_display_text(text: str) -> str:
 
 
 def _extract_assistant_body(text: str) -> str:
-    if text.startswith("🤖 "):
-        text = text[2:]
+    """去掉助手图标 / spinner / 思考前缀，还原正文"""
+    if text.startswith(f"{ASSISTANT_ICON} "):
+        text = text[len(ASSISTANT_ICON) + 1 :]
     for frame in STATUS_SPINNER_FRAMES:
-        prefix = f"{frame} "
+        for prefix in (
+            f"{frame} ",
+            f"{frame} 思考中… ",
+            f"{frame} 思考中... ",
+            f"{frame} thinking… ",
+            f"{frame} thinking... ",
+        ):
+            if text.startswith(prefix):
+                return text[len(prefix):]
+    for prefix in ("思考中… ", "思考中... ", "thinking… ", "thinking... "):
         if text.startswith(prefix):
             return text[len(prefix):]
     return text
+
+
+def _format_tool_line(name: str, arguments: dict, *, trailer: str = "") -> str:
+    args_str = _format_tool_args(arguments)
+    base = f"● {name}({args_str})" if args_str else f"● {name}"
+    if trailer:
+        return f"{base}  {trailer}"
+    return base
+
+
+def _format_tool_result_block(
+    name: str,
+    arguments: dict,
+    result: str,
+    *,
+    success: bool,
+    auto: bool,
+) -> str:
+    head = _format_tool_line(name, arguments)
+    lines = result.split("\n")
+    summary = " ".join(lines[0].split())[:120] or "(无输出)"
+    more = f" · {len(lines)} 行" if len(lines) > 1 or len(result) > 120 else ""
+    if auto and success:
+        mark = ""
+    elif not auto:
+        mark = "⚠ "
+    else:
+        mark = "✗ "
+    return f"{head}\n  ⎿ {mark}{summary}{more}".rstrip()
 
 
 class ChatWidget(VerticalScroll):
@@ -67,11 +110,11 @@ class ChatWidget(VerticalScroll):
         if busy:
             frame = STATUS_SPINNER_FRAMES[self._status_spinner_idx]
             if body:
-                return f"🤖 {frame} {body}"
-            return f"🤖 {frame} 思考中..."
+                return f"{ASSISTANT_ICON} {frame} {body}"
+            return f"{ASSISTANT_ICON} {frame} 思考中…"
         if body:
-            return f"🤖 {body}"
-        return "🤖"
+            return f"{ASSISTANT_ICON} {body}"
+        return ASSISTANT_ICON
 
     def _assistant_stream_text(self) -> str:
         return self._format_assistant("".join(self._streaming_buffer), busy=True)
@@ -99,10 +142,13 @@ class ChatWidget(VerticalScroll):
             return
         self._running_spinner_idx = (self._running_spinner_idx + 1) % len(TOOL_SPINNER_FRAMES)
         frame = TOOL_SPINNER_FRAMES[self._running_spinner_idx]
-        args_str = _format_tool_args(self._running_tool_args or {})
         self._set_text(
             self._running_widget,
-            f"⚡ {self._running_tool_name}({args_str})   {frame} 执行中...",
+            _format_tool_line(
+                self._running_tool_name,
+                self._running_tool_args or {},
+                trailer=f"{frame} 执行中…",
+            ),
         )
 
     def show_thinking(self) -> None:
@@ -147,7 +193,7 @@ class ChatWidget(VerticalScroll):
         return full_text
 
     def add_user_message(self, content: str) -> None:
-        self.mount(self._static(f"👤 {content}", classes="user-msg"))
+        self.mount(self._static(f"{USER_ICON} {content}", classes="user-msg"))
         self.scroll_end(animate=False)
 
     def add_assistant_message(self, content: str) -> None:
@@ -162,13 +208,12 @@ class ChatWidget(VerticalScroll):
             self.finish_streaming()
         self._assistant_busy = True
         self._refresh_last_assistant_busy()
-        args_str = _format_tool_args(arguments)
         self._running_tool_name = name
         self._running_tool_args = arguments
         self._running_spinner_idx = 0
         frame = TOOL_SPINNER_FRAMES[0]
         self._running_widget = self._static(
-            f"⚡ {name}({args_str})   {frame} 执行中...",
+            _format_tool_line(name, arguments, trailer=f"{frame} 执行中…"),
             classes="tool-running",
         )
         self.mount(self._running_widget)
@@ -184,12 +229,9 @@ class ChatWidget(VerticalScroll):
     def add_tool_result(self, name: str, arguments: dict, auto: bool, result: str, success: bool) -> None:
         self._assistant_busy = False
         self._refresh_last_assistant_busy()
-        args_str = _format_tool_args(arguments)
-        status = "✓" if (auto and success) else ("⚠" if not auto else "✗")
-        lines = result.split("\n")
-        summary = " ".join(lines[0].split())[:120]
-        more = f" ({len(lines)} 行, {len(result)} 字符)" if len(lines) > 1 or len(result) > 120 else ""
-        text = f"⚡ {name}({args_str}) {status} {summary}{more}"
+        text = _format_tool_result_block(
+            name, arguments, result, success=success, auto=auto
+        )
         if self._running_widget is not None:
             self._set_text(self._running_widget, text)
             self._running_widget.remove_class("tool-running")
@@ -212,6 +254,16 @@ class ChatWidget(VerticalScroll):
 
     def add_system_message(self, content: str) -> None:
         self.mount(self._static(f"📢 {content}", classes="system-msg"))
+        self.scroll_end(animate=False)
+
+    def add_welcome(self, content: str) -> None:
+        """启动字标欢迎页（橙色强调，无 📢 前缀）"""
+        self.mount(self._static(content, classes="welcome-msg"))
+        self.scroll_end(animate=False)
+
+    def mount_welcome(self, widget: Widget) -> None:
+        """挂载欢迎面板（左右分栏组件）"""
+        self.mount(widget)
         self.scroll_end(animate=False)
 
     def clear(self) -> None:

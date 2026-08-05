@@ -1,16 +1,32 @@
-"""Header 组件 — 模型名、轮次、运行状态"""
+"""底部状态行 — Claude Code 布局 + 中文状态"""
 
 from textual.widgets import Static
 
 
 class HeaderWidget(Static):
-    """顶部状态栏"""
+    """底部状态行：model / turn / status"""
 
     def __init__(self):
-        super().__init__("", id="header")
+        super().__init__(" tui-agent", id="header")
 
-    def update_status(self, model: str, turn: int, max_turns: int, status: str = "🟢 等待输入") -> None:
+    def update_status(
+        self,
+        model: str,
+        turn: int,
+        max_turns: int,
+        status: str = "就绪",
+        provider: str | None = None,
+    ) -> None:
         """更新状态栏"""
-        self.update(
-            f" TUI Agent · {model} · turn {turn}/{max_turns}   {status}"
+        parts = ["tui-agent"]
+        if provider:
+            parts.append(provider)
+        parts.append(model)
+        parts.append(f"轮次 {turn}/{max_turns}")
+        clean = (
+            status.replace("🟢 ", "")
+            .replace("🟡 ", "")
+            .replace("🔴 ", "")
+            .replace("⏳ ", "")
         )
+        self.update(f" {' · '.join(parts)}    {clean}")

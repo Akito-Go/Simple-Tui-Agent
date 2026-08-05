@@ -1,0 +1,285 @@
+"""启动欢迎页 — Claude Code 式左右分栏 +「Le+O」块字徽标"""
+
+from __future__ import annotations
+
+from datetime import date
+from importlib.metadata import PackageNotFoundError, version
+from pathlib import Path
+from typing import Any
+
+from textual.app import ComposeResult
+from textual.containers import Horizontal, Vertical
+from textual.widgets import Static
+
+# 「Le+O」欢迎吉祥物：Q 版小猫（Claude Code 式 █ ▄ ▀ 像素）
+WELCOME_ICON = "\n".join(
+    [
+        "        ▄▄      ▄▄",
+        "       ████    ████",
+        "      ██▀████████▀██",
+        "     ██  ▄█  █▄  ██",
+        "     ██   ▀██▀   ██",
+        "      ██▄ ▄▄▄▄ ▄██",
+        "     ▄███████████▄",
+        "    ██▀  ▀████▀  ▀██",
+        "     ▀            ▀",
+    ]
+)
+BRAND_WORDMARK = "Le+O"
+
+WELCOME_TIPS: tuple[str, ...] = (
+    "只读工具会自动执行；写入与 Shell 会先征求你的确认。",
+    "权限确认时按 A，可在本会话跳过后续确认（黑名单仍生效）。",
+    "用 /model 切换模型，用 /provider 在 OpenAI 兼容与 Anthropic 间切换。",
+    "任务跑偏时输入 /stop，可立刻中止当前 Agent 循环。",
+    "用 /status 查看轮次、估算 tokens 与本会话权限状态。",
+    "Shell 高危命令（如 rm -rf /、curl|sh）会被安全策略直接拦截。",
+    "直接描述目标即可，例如：帮我梳理这个项目的目录结构。",
+    "输入 /help 可查看全部命令与可用工具列表。",
+    "用 /sessions 列出历史会话，或 /sessions <序号> 直接恢复。",
+)
+
+
+def get_app_version() -> str:
+    """读取已安装包版本；开发态回退到默认版本号。"""
+    try:
+        return version("tui-agent")
+    except PackageNotFoundError:
+        return "0.1.0"
+
+
+def pick_tip_index(*, seed: str | None = None) -> int:
+    """按日期 + 可选 seed 选择起始 tip，同日相对稳定、跨日轮换。"""
+    base = date.today().toordinal()
+    if seed:
+        base += sum(ord(c) for c in seed)
+    return base % len(WELCOME_TIPS)
+
+
+def _short_cwd(cwd: Path | str | None) -> str:
+    workdir = Path(cwd or Path.cwd()).resolve()
+    home = Path.home().resolve()
+    try:
+        return f"~/{workdir.relative_to(home)}"
+    except ValueError:
+        return str(workdir)
+
+
+def _format_recent_activity(sessions: list[dict[str, Any]] | None) -> str:
+    if not sessions:
+        return "暂无最近活动\n输入 /sessions 可查看并恢复历史会话"
+    lines: list[str] = []
+    for i, s in enumerate(sessions[:3], 1):
+        preview = (s.get("preview") or "").strip()
+        preview = f"「{preview[:24]}」" if preview else ""
+        lines.append(
+            f"{i}. {s.get('last_active', '?')} · {s.get('model', '?')} {preview}"
+        )
+    lines.append("输入 /sessions 恢复会话")
+    return "\n".join(lines)
+
+
+def build_welcome_banner(
+    *,
+    provider: str,
+    model: str,
+    cwd: Path | str | None = None,
+    max_turns: int | None = None,
+    context_max_tokens: int | None = None,
+    tip_index: int | None = None,
+    app_version: str | None = None,
+    recent_sessions: list[dict[str, Any]] | None = None,
+) -> str:
+    """纯文本版欢迎页（测试/降级用）；正式 UI 使用 WelcomeWidget 左右分栏。"""
+    display_cwd = _short_cwd(cwd)
+    ver = app_version or get_app_version()
+    idx = pick_tip_index(seed=display_cwd) if tip_index is None else tip_index % len(WELCOME_TIPS)
+    tip = WELCOME_TIPS[idx]
+    recent = _format_recent_activity(recent_sessions)
+
+    left = [
+        WELCOME_ICON,
+        f"{BRAND_WORDMARK} · tui-agent v{ver}",
+        f"{provider} · {model}",
+        display_cwd,
+    ]
+    if max_turns is not None:
+        left.append(f"最大轮次 {max_turns}")
+    if context_max_tokens is not None:
+        left.append(f"上下文 ~{context_max_tokens} tokens")
+
+    right = [
+        "入门提示",
+        tip,
+        "────────",
+        "最近活动",
+        recent,
+    ]
+    # 简单并排：左列固定宽，右列接续
+    left_w = max(len(line) for line in left)
+    rows = max(len(left), len(right))
+    out = [f" tui-agent v{ver} ".center(left_w + 28, "─")]
+    for i in range(rows):
+        l = left[i] if i < len(left) else ""
+        r = right[i] if i < len(right) else ""
+        out.append(f"{l:<{left_w}}  │  {r}")
+    return "\n".join(out)
+
+
+class WelcomeWidget(Vertical):
+    """Claude Code 风格欢迎面板：橙框标题 + 左 Le+O 徽标 / 右 Tips+最近活动。"""
+
+    DEFAULT_CSS = """
+    WelcomeWidget {
+        height: auto;
+        min-height: 16;
+        margin: 0 0 1 0;
+        border: round #da7756;
+        background: #0c0c0c;
+        padding: 1 1 1 1;
+    }
+
+    #welcome-body {
+        height: auto;
+        min-height: 14;
+        layout: horizontal;
+    }
+
+    #welcome-left {
+        width: 1fr;
+        height: auto;
+        padding: 0 2 0 1;
+        border-right: solid #da7756;
+        content-align: center middle;
+    }
+
+    #welcome-right {
+        width: 1fr;
+        height: auto;
+        padding: 0 1 0 2;
+    }
+
+    #welcome-right-top {
+        height: auto;
+        min-height: 5;
+        padding-bottom: 1;
+        border-bottom: solid #da7756;
+        margin-bottom: 1;
+    }
+
+    #welcome-right-bottom {
+        height: auto;
+        min-height: 4;
+    }
+
+    .welcome-greeting {
+        color: #f5f0e8;
+        text-align: center;
+        margin: 0 0 1 0;
+    }
+
+    .welcome-logo {
+        color: #da7756;
+        text-align: center;
+        text-style: bold;
+        margin: 1 0;
+    }
+
+    .welcome-links {
+        color: #c8c2b8;
+        text-align: center;
+        margin: 1 0 0 0;
+    }
+
+    .welcome-path {
+        color: #8a857c;
+        text-align: center;
+        margin: 0 0 0 0;
+    }
+
+    .welcome-section-title {
+        color: #da7756;
+        text-style: bold;
+        margin: 0 0 1 0;
+    }
+
+    .welcome-section-body {
+        color: #a8a29a;
+        height: auto;
+    }
+    """
+
+    def __init__(
+        self,
+        *,
+        provider: str,
+        model: str,
+        cwd: Path | str | None = None,
+        max_turns: int | None = None,
+        context_max_tokens: int | None = None,
+        recent_sessions: list[dict[str, Any]] | None = None,
+        rotate_seconds: float = 5.0,
+    ):
+        super().__init__(classes="welcome-panel")
+        self._provider = provider
+        self._model = model
+        self._cwd = cwd
+        self._max_turns = max_turns
+        self._context_max_tokens = context_max_tokens
+        self._recent_sessions = recent_sessions or []
+        self._rotate_seconds = rotate_seconds
+        self._tip_index = pick_tip_index(seed=_short_cwd(cwd))
+        self._version = get_app_version()
+        # 对齐 Claude Code：品牌名 + 版本嵌在橙框顶边
+        self.border_title = f" {BRAND_WORDMARK} · tui-agent v{self._version} "
+
+    def compose(self) -> ComposeResult:
+        display_cwd = _short_cwd(self._cwd)
+        # 左栏底部信息条，对应 Claude Code 的 model · links · path
+        link_bits = [self._model, self._provider]
+        if self._max_turns is not None:
+            link_bits.append(f"轮次≤{self._max_turns}")
+
+        with Horizontal(id="welcome-body"):
+            with Vertical(id="welcome-left"):
+                yield Static("欢迎回来！", classes="welcome-greeting", markup=False)
+                yield Static(WELCOME_ICON, classes="welcome-logo", markup=False)
+                yield Static(
+                    " · ".join(link_bits),
+                    classes="welcome-links",
+                    markup=False,
+                )
+                yield Static(display_cwd, classes="welcome-path", markup=False)
+
+            with Vertical(id="welcome-right"):
+                with Vertical(id="welcome-right-top"):
+                    yield Static("入门提示", classes="welcome-section-title", markup=False)
+                    yield Static(
+                        WELCOME_TIPS[self._tip_index],
+                        id="welcome-tip",
+                        classes="welcome-section-body",
+                        markup=False,
+                    )
+                with Vertical(id="welcome-right-bottom"):
+                    yield Static("最近活动", classes="welcome-section-title", markup=False)
+                    yield Static(
+                        _format_recent_activity(self._recent_sessions),
+                        id="welcome-recent",
+                        classes="welcome-section-body",
+                        markup=False,
+                    )
+
+    def on_mount(self) -> None:
+        if self._rotate_seconds > 0 and len(WELCOME_TIPS) > 1:
+            self.set_interval(self._rotate_seconds, self._rotate_tip)
+
+    def _rotate_tip(self) -> None:
+        self._tip_index = (self._tip_index + 1) % len(WELCOME_TIPS)
+        tip = self.query_one("#welcome-tip", Static)
+        tip.update(WELCOME_TIPS[self._tip_index])
+
+
+# 兼容旧导出名
+OJL_ICON = WELCOME_ICON
+OJL_LOGO = WELCOME_ICON
+OJL_WORDMARK = BRAND_WORDMARK
