@@ -25,9 +25,10 @@ class TestWelcomeCatAndSessionsHint:
         lines = WELCOME_ICON.splitlines()
         assert len(lines) >= 6
 
-    def test_recent_activity_mentions_sessions_command(self):
-        assert "/sessions" in _format_recent_activity([])
-        assert "/sessions" in _format_recent_activity(
+    def test_recent_activity_and_sessions_tip(self):
+        assert "暂无最近活动" in _format_recent_activity([])
+        assert "hi" in _format_recent_activity(
             [{"last_active": "今天", "model": "m", "preview": "hi"}]
         )
+        # /sessions 引导放在 tips，对齐 Claude「No recent activity」简洁展示
         assert any("/sessions" in tip for tip in WELCOME_TIPS)

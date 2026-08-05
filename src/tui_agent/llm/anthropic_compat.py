@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any, AsyncIterator
 
@@ -118,6 +119,8 @@ class AnthropicProvider(LLMProvider):
         try:
             async for event in self._do_chat(messages, tools, stream):
                 yield event
+        except asyncio.CancelledError:
+            raise
         except TimeoutError:
             yield {"type": "error", "message": f"LLM 请求超时 ({self.timeout}s)"}
         except Exception as e:

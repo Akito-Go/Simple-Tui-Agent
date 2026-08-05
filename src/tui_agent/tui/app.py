@@ -5,6 +5,7 @@ from pathlib import Path
 
 from textual.app import App
 from textual.binding import Binding
+from textual.containers import Container
 from textual.widgets import Input
 
 from .screens import MainScreen
@@ -433,16 +434,22 @@ class TuiAgentApp(App):
                 self._set_input_mode(waiting_confirm=False)
                 if self.agent_loop is not None:
                     self.agent_loop.permission_guard.deny()
-                if self._agent_task is not None:
+                if self._agent_task is not None and not self._agent_task.done():
                     self._agent_task.cancel()
-                    self._agent_task = None
+                self._agent_task = None
                 self._agent_running = False
+                self._stop_requested = False
                 chat.add_system_message("⏹ 已终止等待确认的任务")
                 self._update_header(status="就绪")
             elif self._agent_running:
+                # cancel 会在 _process_events 中以 CancelledError 收尾并复位 UI
                 self._stop_requested = True
-                if self._agent_task is not None:
+                if self._agent_task is not None and not self._agent_task.done():
                     self._agent_task.cancel()
+                else:
+                    # 任务已结束但标志未清：直接收尾，避免一直卡在「正在终止」
+                    self._finalize_stopped(chat)
+                    return
                 chat.add_system_message("⏹ 正在终止当前任务...")
             else:
                 chat.add_system_message("当前没有正在运行的任务")
@@ -583,13 +590,16 @@ class TuiAgentApp(App):
             input_widget.disabled = False
 
     def _show_confirm_widget(self, tool_name: str, summary: str) -> None:
-        """在对话流中内联显示权限确认组件"""
+        """在底部输入区上方的独立槽位显示权限确认（与聊天流分离）"""
         screen = self.screen
         chat = screen.query_one("#chat", ChatWidget)
         if chat._streaming_widget is not None:
             chat.finish_streaming()
-        chat.mount(ConfirmWidget(tool_name, summary))
-        chat.scroll_end(animate=False)
+        slot = screen.query_one("#confirm-slot", Container)
+        # 避免重复挂载
+        for child in list(slot.children):
+            child.remove()
+        slot.mount(ConfirmWidget(tool_name, summary))
         self._set_input_mode(waiting_confirm=True)
 
     def on_confirm(self, confirmed: bool, allow_session: bool = False) -> None:
@@ -640,22 +650,32 @@ class TuiAgentApp(App):
         self._stop_requested = False
         self._agent_task = asyncio.create_task(self._process_events(self.agent_loop.continue_with_confirmation(confirmed)))
 
+    def _finalize_stopped(self, chat: ChatWidget, *, message: str = "⏹ 任务已终止") -> None:
+        """stop/cancel 后统一复位 UI 与运行标志"""
+        if chat._streaming_widget is not None:
+            chat.finish_streaming()
+        chat.add_system_message(message)
+        self._update_header(status="就绪")
+        self._agent_running = False
+        self._stop_requested = False
+        self._agent_task = None
+        if self.session is not None:
+            from ..session.storage import save_session
+
+            save_session(self.session)
+
     async def _process_events(self, events):
         """处理 Agent 事件流"""
         screen = self.screen
         chat = screen.query_one("#chat", ChatWidget)
-        header = screen.query_one("#header", HeaderWidget)
 
         pending_tool: dict | None = None
 
         try:
             async for event in events:
-                # 每次迭代前检查 stop
+                # 协作式 stop：若 cancel 未立刻打断 await，则在事件边界退出
                 if self._stop_requested:
-                    chat.add_system_message("⏹ 任务已终止")
-                    self._update_header(status="就绪")
-                    self._agent_running = False
-                    self._stop_requested = False
+                    self._finalize_stopped(chat)
                     return
 
                 if isinstance(event, TextDelta):
@@ -712,8 +732,15 @@ class TuiAgentApp(App):
                     self._update_header(status="就绪")
                     self._agent_running = False
 
+        except asyncio.CancelledError:
+            # Task.cancel() 注入的是 BaseException，不能只靠 except Exception
+            self._finalize_stopped(chat)
         except Exception as e:
+            if chat._streaming_widget is not None:
+                chat.finish_streaming()
             chat.add_error(f"Agent 异常: {e}")
             logger.error(f"Agent 异常: {e}")
             self._update_header(status="就绪")
             self._agent_running = False
+            self._stop_requested = False
+            self._agent_task = None

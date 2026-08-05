@@ -53,9 +53,21 @@ class ShellExecTool(ToolBase):
                 cwd=str(cwd_path),
             )
 
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=60
-            )
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=60
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()
+                return ToolResult.fail("命令执行超时 (60s)")
+            except asyncio.CancelledError:
+                process.kill()
+                try:
+                    await process.wait()
+                except Exception:
+                    pass
+                raise
 
             stdout_str = stdout.decode("utf-8", errors="replace").strip()
             stderr_str = stderr.decode("utf-8", errors="replace").strip()
@@ -75,7 +87,7 @@ class ShellExecTool(ToolBase):
                 )
 
             return ToolResult.ok(output)
-        except asyncio.TimeoutError:
-            return ToolResult.fail("命令执行超时 (60s)")
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             return ToolResult.fail(f"命令执行失败: {e}")

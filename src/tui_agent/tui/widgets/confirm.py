@@ -21,15 +21,17 @@ class ConfirmWidget(Vertical, can_focus=True):
         self._option_widgets: list[Static] = []
 
     def on_mount(self) -> None:
+        # 紧凑两行标题，避免确认框过高贴死底部
+        summary = self._summary.replace("\n", " ").strip()
+        if len(summary) > 96:
+            summary = summary[:93] + "..."
         self.mount(Static(
-            f"⚠ 需要确认\n"
-            f" {self._tool_name}\n"
-            f" {self._summary}",
+            f"⚠ 需要确认 · {self._tool_name}\n  {summary}",
             classes="permission-msg",
             markup=False,
         ))
         self.mount(Static(
-            " ↑↓ 选择 · Enter 确认 · Y 同意 · A 本会话全允 · N 拒绝",
+            " ↑↓ · Enter · Y 同意 · A 本会话全允 · N 拒绝",
             classes="confirm-hint",
         ))
         for i, (label, _) in enumerate(self.OPTIONS):

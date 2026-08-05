@@ -1,4 +1,4 @@
-"""启动欢迎页 — Claude Code 式左右分栏 +「Le+O」块字徽标"""
+"""启动欢迎页 — 对齐 Claude Code 橙框左右分栏 + Le+O 小猫徽标"""
 
 from __future__ import annotations
 
@@ -11,18 +11,16 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Static
 
-# 「Le+O」欢迎吉祥物：Q 版小猫（Claude Code 式 █ ▄ ▀ 像素）
+# Q 版小猫（偏小，接近参考图吉祥物体量）
 WELCOME_ICON = "\n".join(
     [
-        "        ▄▄      ▄▄",
-        "       ████    ████",
-        "      ██▀████████▀██",
-        "     ██  ▄█  █▄  ██",
-        "     ██   ▀██▀   ██",
-        "      ██▄ ▄▄▄▄ ▄██",
-        "     ▄███████████▄",
-        "    ██▀  ▀████▀  ▀██",
-        "     ▀            ▀",
+        "    ▄▄    ▄▄",
+        "   ████  ████",
+        "  ██▀██████▀██",
+        "  ██ ▄█  █▄ ██",
+        "  ██  ▀██▀  ██",
+        "   ██▄▄▄▄▄▄██",
+        "  ▀▀      ▀▀",
     ]
 )
 BRAND_WORDMARK = "Le+O"
@@ -67,7 +65,7 @@ def _short_cwd(cwd: Path | str | None) -> str:
 
 def _format_recent_activity(sessions: list[dict[str, Any]] | None) -> str:
     if not sessions:
-        return "暂无最近活动\n输入 /sessions 可查看并恢复历史会话"
+        return "暂无最近活动"
     lines: list[str] = []
     for i, s in enumerate(sessions[:3], 1):
         preview = (s.get("preview") or "").strip()
@@ -75,7 +73,6 @@ def _format_recent_activity(sessions: list[dict[str, Any]] | None) -> str:
         lines.append(
             f"{i}. {s.get('last_active', '?')} · {s.get('model', '?')} {preview}"
         )
-    lines.append("输入 /sessions 恢复会话")
     return "\n".join(lines)
 
 
@@ -115,7 +112,6 @@ def build_welcome_banner(
         "最近活动",
         recent,
     ]
-    # 简单并排：左列固定宽，右列接续
     left_w = max(len(line) for line in left)
     rows = max(len(left), len(right))
     out = [f" tui-agent v{ver} ".center(left_w + 28, "─")]
@@ -127,54 +123,52 @@ def build_welcome_banner(
 
 
 class WelcomeWidget(Vertical):
-    """Claude Code 风格欢迎面板：橙框标题 + 左 Le+O 徽标 / 右 Tips+最近活动。"""
+    """Claude Code 风格：橙线方框 + 顶栏标题 + 左徽标 / 右 Tips+活动。"""
 
     DEFAULT_CSS = """
     WelcomeWidget {
         height: auto;
-        min-height: 16;
         margin: 0 0 1 0;
-        border: round #da7756;
-        background: #0c0c0c;
-        padding: 1 1 1 1;
+        border: solid #da7756;
+        background: #1a1a1a;
+        padding: 1 1;
     }
 
     #welcome-body {
         height: auto;
-        min-height: 14;
         layout: horizontal;
     }
 
     #welcome-left {
-        width: 1fr;
+        width: 3fr;
         height: auto;
+        min-height: 11;
         padding: 0 2 0 1;
         border-right: solid #da7756;
         content-align: center middle;
     }
 
     #welcome-right {
-        width: 1fr;
+        width: 2fr;
         height: auto;
         padding: 0 1 0 2;
     }
 
     #welcome-right-top {
         height: auto;
-        min-height: 5;
-        padding-bottom: 1;
+        padding: 0 0 1 0;
         border-bottom: solid #da7756;
-        margin-bottom: 1;
+        margin: 0 0 1 0;
     }
 
     #welcome-right-bottom {
         height: auto;
-        min-height: 4;
     }
 
     .welcome-greeting {
         color: #f5f0e8;
         text-align: center;
+        text-style: bold;
         margin: 0 0 1 0;
     }
 
@@ -182,19 +176,19 @@ class WelcomeWidget(Vertical):
         color: #da7756;
         text-align: center;
         text-style: bold;
-        margin: 1 0;
+        margin: 0 0 1 0;
     }
 
     .welcome-links {
-        color: #c8c2b8;
+        color: #8a857c;
         text-align: center;
-        margin: 1 0 0 0;
+        margin: 0 0 0 0;
     }
 
     .welcome-path {
         color: #8a857c;
         text-align: center;
-        margin: 0 0 0 0;
+        margin: 1 0 0 0;
     }
 
     .welcome-section-title {
@@ -204,7 +198,7 @@ class WelcomeWidget(Vertical):
     }
 
     .welcome-section-body {
-        color: #a8a29a;
+        color: #c8c2b8;
         height: auto;
     }
     """
@@ -230,12 +224,11 @@ class WelcomeWidget(Vertical):
         self._rotate_seconds = rotate_seconds
         self._tip_index = pick_tip_index(seed=_short_cwd(cwd))
         self._version = get_app_version()
-        # 对齐 Claude Code：品牌名 + 版本嵌在橙框顶边
-        self.border_title = f" {BRAND_WORDMARK} · tui-agent v{self._version} "
+        # 对齐参考图：品牌 + 版本嵌在顶边左侧
+        self.border_title = f"{BRAND_WORDMARK} · tui-agent v{self._version}"
 
     def compose(self) -> ComposeResult:
         display_cwd = _short_cwd(self._cwd)
-        # 左栏底部信息条，对应 Claude Code 的 model · links · path
         link_bits = [self._model, self._provider]
         if self._max_turns is not None:
             link_bits.append(f"轮次≤{self._max_turns}")

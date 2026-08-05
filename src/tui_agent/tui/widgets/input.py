@@ -1,13 +1,14 @@
-"""输入框组件 — 多行输入、命令识别"""
+"""输入框组件 — Claude Code 式单行 > 提示"""
 
 from textual.widgets import Input
 
-INPUT_PLACEHOLDER = "> 输入消息，或 Esc=/stop · /help /sessions /model /status /clear /exit"
-INPUT_PLACEHOLDER_CONFIRM = "> 等待确认：↑↓+Enter · Y 同意 · A 本会话全允 · N 拒绝"
+# `>` 由界面左侧 Static 绘制；保留淡色占位，避免空输入区「看不见」
+INPUT_PLACEHOLDER = "输入消息，或 /help"
+INPUT_PLACEHOLDER_CONFIRM = "等待确认：↑↓+Enter · Y/A/N"
 
 
 class InputWidget(Input):
-    """底部输入框"""
+    """底部输入框（外层细线 + 左侧 >）"""
 
     def __init__(self):
         super().__init__(

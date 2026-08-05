@@ -26,12 +26,9 @@ build/
 # 本地交付物 / 截图 / 演示游戏（不推远端）
 deliverables/
 
-# OpenSpec 变更归档（本地工作流）
-openspec/changes/
-
-# Copilot / OpenSpec 本地脚手架
-.github/prompts/
-.github/skills/
+# 本地规格与脚手架（整目录不推远端）
+openspec/
+.github/
 
 # 考核与评审文档（本地）
 docs/ai-audit-report.md

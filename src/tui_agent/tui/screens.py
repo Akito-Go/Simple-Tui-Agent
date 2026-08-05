@@ -1,8 +1,8 @@
-"""主界面布局 — Claude Code 骨架 + 对话气泡图标"""
+"""主界面布局 — 对齐 Claude Code：橙框欢迎页 + 细线输入区"""
 
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.containers import Container
+from textual.containers import Container, Horizontal
 from textual.widgets import Static
 
 from .widgets.header import HeaderWidget
@@ -11,7 +11,7 @@ from .widgets.input import InputWidget
 
 
 class MainScreen(Screen):
-    """主界面 — Claude Code 布局 + 用户/助手图标与对话框感"""
+    """主界面 — Claude Code 骨架"""
 
     CSS = """
     Screen {
@@ -24,7 +24,6 @@ class MainScreen(Screen):
         background: #1a1a1a;
         color: #8a857c;
         padding: 0 1;
-        border-top: solid #2a2a2a;
     }
 
     #chat {
@@ -36,13 +35,49 @@ class MainScreen(Screen):
         scrollbar-size: 1 1;
     }
 
+    /* 底部：确认槽 + 细线夹着的单行输入 + 快捷提示 */
     #input-container {
         dock: bottom;
         height: auto;
-        min-height: 3;
-        padding: 0 1 0 1;
+        padding: 0 1;
         background: #1a1a1a;
-        border-top: solid #2a2a2a;
+    }
+
+    #confirm-slot {
+        height: auto;
+        margin: 0;
+        padding: 0;
+    }
+
+    /* height=3：上下细线各占 1 行，中间留给 > 与输入（height:1 会被边框吃光） */
+    #input-wrap {
+        height: 3;
+        layout: horizontal;
+        border-top: solid #3a3a3a;
+        border-bottom: solid #3a3a3a;
+        background: #1a1a1a;
+        padding: 0 1;
+        align: left middle;
+    }
+
+    #input-prompt {
+        width: 2;
+        height: 1;
+        color: #f0ece4;
+        content-align: left middle;
+    }
+
+    #input {
+        width: 1fr;
+        height: 1;
+        background: #1a1a1a;
+        border: none;
+        color: #f0ece4;
+        padding: 0;
+    }
+
+    #input:focus {
+        background: #1a1a1a;
     }
 
     #footer-hint {
@@ -50,20 +85,6 @@ class MainScreen(Screen):
         padding: 0 1;
         height: 1;
         text-style: dim;
-    }
-
-    #input {
-        width: 100%;
-        background: #1a1a1a;
-        border: none;
-        border-left: thick #da7756;
-        color: #f0ece4;
-        padding: 0 1;
-    }
-
-    #input:focus {
-        border-left: thick #da7756;
-        background: #222222;
     }
 
     .welcome-msg {
@@ -112,7 +133,9 @@ class MainScreen(Screen):
 
     .permission-msg {
         color: #e2c08d;
-        margin: 0 0;
+        margin: 0;
+        height: auto;
+        max-height: 3;
         text-style: bold;
     }
 
@@ -146,21 +169,24 @@ class MainScreen(Screen):
     }
 
     .confirm-inline {
-        margin: 1 0;
+        margin: 0;
         height: auto;
-        border: double #e2c08d;
-        background: #222222;
-        padding: 0 1 1 1;
+        max-height: 10;
+        border: solid #e2c08d;
+        background: #2a2418;
+        padding: 0 1;
     }
 
     .confirm-hint {
         color: #6b6560;
-        margin: 0 0 1 0;
+        margin: 0;
+        height: 1;
         text-style: dim;
     }
 
     .confirm-option {
         color: #c8c2b8;
+        height: 1;
         padding: 0 1;
     }
 
@@ -168,20 +194,25 @@ class MainScreen(Screen):
         color: #1a1a1a;
         background: #da7756;
         text-style: bold;
+        height: 1;
         padding: 0 1;
     }
     """
 
     def compose(self) -> ComposeResult:
-        # dock:bottom 先挂载的贴最底 → 状态行在底，输入区在其上
+        # dock:bottom 先挂载贴最底 → 状态行 → 输入区（上细线 / > / 下细线 / 提示）
         yield ChatWidget()
         yield HeaderWidget()
         with Container(id="input-container"):
+            yield Container(id="confirm-slot")
+            with Horizontal(id="input-wrap"):
+                yield Static(">", id="input-prompt", markup=False)
+                yield InputWidget()
             yield Static(
-                "? for shortcuts · Esc=/stop · /help · 写入/Shell 需确认 · Y/A/N",
+                "Esc=/stop · /help · /sessions · 写入与 Shell 需确认 · 只读自动执行",
                 id="footer-hint",
+                markup=False,
             )
-            yield InputWidget()
 
     def on_mount(self) -> None:
         """Screen 挂载后通知 App 初始化 Agent"""

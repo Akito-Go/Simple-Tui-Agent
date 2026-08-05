@@ -33,6 +33,8 @@ class OpenAICompatProvider(LLMProvider):
         try:
             async for event in self._do_chat(messages, tools, stream):
                 yield event
+        except asyncio.CancelledError:
+            raise
         except asyncio.TimeoutError:
             yield {"type": "error", "message": f"LLM 请求超时 ({self.timeout}s)"}
         except Exception as e:

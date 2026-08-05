@@ -109,7 +109,8 @@ tui-agent
    ```
 2. 需要恢复历史时使用 `/sessions`（或 `/sessions <序号>`）；选择阶段输入序号恢复，`N` 取消
 3. 只读工具（`list_dir`、`read_file` 等）自动执行；写入/Shell 会弹出确认（↑↓ + Enter 或 Y/N）
-4. 运行中可用 `/stop` 终止；退出用 `/exit` 或 `Ctrl+C`
+4. 寒暄/闲聊默认不应调工具；有明确编码任务时再浏览与修改
+5. 运行中可用 `/stop` 或 `Esc` 终止；退出用 `/exit` 或 `Ctrl+C`
 
 ### 常见问题
 
@@ -180,7 +181,7 @@ python -m tui_agent
 │  ● list_dir(path=.)                                           │
 │    ⎿ src/ tests/ ...                                          │
 > _
-? for shortcuts · /help · /sessions
+Esc=/stop · /help · /sessions · 写入与 Shell 需确认 · 只读自动执行
 tui-agent · openai · gpt-4o-mini · 轮次 1/50    就绪
 ```
 
@@ -237,10 +238,11 @@ tui-agent/
 ├── tests/
 ├── config/default.yaml
 ├── docs/architecture.md
-├── openspec/specs/             # 现行规格（归档/脚手架见 .gitignore）
 ├── .env.example
 └── pyproject.toml
 ```
+
+> `openspec/`、`.github/`、`deliverables/` 等仅本地保留，已在 `.gitignore`，不推远端。
 
 ## 运行测试
 
@@ -266,9 +268,10 @@ python -m pytest tests/ -v
 - 支持 OpenAI 兼容协议与 Anthropic Messages API（配置切换）
 - API Key 仅环境变量，日志脱敏
 - 支持多模型 / Provider 切换、`/sessions` 会话恢复、上下文压缩
-- `/stop` 与 `Esc` 可随时中断当前任务
+- `/stop` 与 `Esc` 可随时中断当前任务（取消后台 Task 并复位 UI）
+- 闲聊/寒暄时 system prompt 引导不主动扫仓库
 - 工作区沙箱、敏感文件拦截、Shell 高危命令黑名单
-- 权限确认支持「本次会话全部允许」
+- 权限确认支持「本次会话全部允许」（不绕过 Shell 黑名单）
 
 ## 更多文档
 

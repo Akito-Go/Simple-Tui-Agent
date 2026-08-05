@@ -167,17 +167,13 @@
 
 ```
 tui-agent/
-├── .ai_history/logs/              # 考核交付日志 (Cursor 对话摘要)
-├── .github/
-│   └── copilot-instructions.md    # Copilot 行为规范
-├── .tui-agent/logs/               # TUI 产品对话日志 (JSONL)
+├── .ai_history/logs/              # 考核交付日志 (Cursor 对话摘要，本地)
+├── .tui-agent/logs/               # TUI 产品对话日志 (JSONL，本地)
 ├── deliverables/                  # 本地交付物（.gitignore，不推远端）
 ├── docs/                          # 设计文档
 │   └── architecture.md            # 本文档
-├── openspec/                      # OpenSpec 变更管理
-│   ├── config.yaml
-│   ├── changes/
-│   └── specs/
+├── openspec/                      # OpenSpec（本地，不推远端）
+├── .github/                       # CI / Copilot 脚手架（本地，不推远端）
 ├── src/
 │   └── tui_agent/                 # 主包
 │       ├── __init__.py
@@ -248,8 +244,8 @@ tui-agent/
 │   ├── test_stop_command.py
 │   ├── test_workspace.py
 │   ├── test_shell_policy.py       # Shell 黑名单
+│   ├── test_stop_cancel.py        # Esc//stop CancelledError 复位
 │   └── test_tools.py              # 全量用例合计
-├── .github/workflows/ci.yml       # GitHub Actions 自动测试
 ├── config/
 │   └── default.yaml               # 默认配置模板
 ├── pyproject.toml
@@ -508,7 +504,7 @@ llm:
 | `/help` | 显示帮助信息 |
 | `/clear` | 清空当前会话（并重置会话级全允） |
 | `/sessions` | 列出/恢复历史会话（`/sessions <序号>` 可直接恢复） |
-| `/stop` / `Esc` | 停止当前 Agent（Task cancel + 协作终止） |
+| `/stop` / `Esc` | 停止当前 Agent（Task.cancel + CancelledError 收尾复位 UI） |
 | `/model` | 查看/切换模型（跨 Provider 重建客户端） |
 | `/provider` | 查看/切换 `openai_compat` / `anthropic` |
 | `/status` | 查看运行状态（含估算 tokens） |
@@ -564,16 +560,14 @@ llm:
 | `test_workspace.py` | 工作区路径解析、越界拒绝、Shell cwd |
 | `test_llm_provider.py` | Mock Provider 流式/重试 |
 
-### 5.2 CI 持续集成
+### 5.2 本地回归
 
-`.github/workflows/ci.yml` 在 push/PR 时自动执行：
+公开仓不包含 `.github/`；请在本地执行：
 
 ```bash
 pip install -e ".[dev]"
 pytest tests/ -v --tb=short
 ```
-
-矩阵：Python 3.11、3.12（ubuntu-latest）。
 
 ### 5.3 Mock LLM Provider
 
@@ -614,7 +608,7 @@ def mock_llm_provider():
 | AI 协作记录 | `.ai_history/logs/` | 每轮对话摘要 |
 | TUI 产品日志 | `.tui-agent/logs/` | JSONL 格式对话记录 |
 | 运行截图 | `deliverables/`（本地） | 小游戏实现/运行截图，不纳入公开仓 |
-| CI 配置 | `.github/workflows/ci.yml` | 自动回归测试 |
+| OpenSpec / CI 脚手架 | `openspec/`、`.github/`（本地） | 规格与 Actions，不纳入公开仓 |
 | 设计文档 | `docs/architecture.md` | 本文档 |
 
 ---

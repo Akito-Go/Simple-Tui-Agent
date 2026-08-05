@@ -1,5 +1,6 @@
 """Agent Loop 核心 — 自实现，不使用任何 Agent SDK/Framework"""
 
+import asyncio
 import json
 from typing import AsyncIterator
 
@@ -133,6 +134,8 @@ class AgentLoop:
                         return
                     elif event["type"] == "finish":
                         break
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 error_msg = f"Agent Loop 异常: {str(e)}"
                 self.session.add_assistant_message(f"[异常] {error_msg}")

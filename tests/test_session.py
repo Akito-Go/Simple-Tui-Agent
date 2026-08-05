@@ -17,6 +17,12 @@ class TestSessionManager:
         assert "Claude" in messages[0]["content"]
         assert session.turn_count == 0
 
+    def test_system_prompt_discourages_idle_tool_use(self):
+        prompt = SessionManager.build_system_prompt("test-model")
+        assert "不要调用任何工具" in prompt
+        assert "主动扫描整个仓库" in prompt
+        assert "会自动执行" in prompt
+
     def test_set_model_updates_system_prompt(self):
         session = SessionManager(model="moonshot/kimi-k2.5")
         session.set_model("xiaomi/mimo-v2.5-pro")
