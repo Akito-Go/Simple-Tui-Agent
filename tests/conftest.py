@@ -2,7 +2,6 @@
 
 import pytest
 from typing import AsyncIterator
-from pathlib import Path
 
 
 class MockLLMResponse:
@@ -14,7 +13,10 @@ class MockLLMResponse:
         self.finish_reason = finish_reason
 
 
-class MockLLMProvider:
+from tui_agent.llm.provider import LLMProvider
+
+
+class MockLLMProvider(LLMProvider):
     """Mock LLM Provider — 返回预设响应，不调用真实 API"""
 
     def __init__(self):

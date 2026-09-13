@@ -85,7 +85,9 @@ class TestGrepSearch:
     @pytest.mark.asyncio
     async def test_grep_no_match(self, temp_workspace):
         tool = GrepSearchTool()
-        result = await tool.execute(pattern="nonexistent_pattern_xyz", path=str(temp_workspace))
+        result = await tool.execute(
+            pattern="nonexistent_pattern_xyz", path=str(temp_workspace)
+        )
         assert result.success
         assert "无匹配" in result.output
 
@@ -149,8 +151,8 @@ class TestShellExec:
     async def test_command_fails(self):
         tool = ShellExecTool()
         result = await tool.execute(command="nonexistent_command_xyz 2>&1")
-        # 命令执行了就算 success=True，但退出码非零
-        assert result.success
+        assert not result.success
+        assert "退出码" in result.error
 
     def test_permission_level(self):
         assert ShellExecTool.permission_level == PermissionLevel.SHELL

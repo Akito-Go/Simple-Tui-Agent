@@ -1,5 +1,5 @@
-# TUI Agent 默认配置
-# 项目级配置 (.tui-agent.yaml) > 用户级配置 (~/.tui-agent.yaml) > 本文件
+# TUI Agent 配置示例（复制为 .tui-agent.yaml 后生效）
+# 内置默认值由 src/tui_agent/config/schema.py 定义，本文件不参与运行时加载
 
 max_turns: 50
 context_max_tokens: 32000

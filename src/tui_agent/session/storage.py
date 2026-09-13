@@ -1,6 +1,7 @@
-"""会话持久化 — JSONL 格式写入 .tui-agent/logs/"""
+"""JSONL 增量历史与压缩检查点；写入失败保留游标并回滚本次追加。"""
 
 import json
+import os
 from pathlib import Path
 
 from ..logging.logger import sanitize_log_record
@@ -8,34 +9,57 @@ from .manager import SessionManager
 
 
 def get_log_dir() -> Path:
-    """获取 TUI 项目日志目录"""
     log_dir = Path.cwd() / ".tui-agent" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir
 
 
 def save_session(session: SessionManager) -> Path:
-    """
-    将会话历史以 JSONL 格式增量持久化。
-    首次写入用 'w'，后续用 'a'，避免重复写入已保存的消息。
-
-    Returns:
-        写入的文件路径
-    """
-    log_dir = get_log_dir()
-    filepath = log_dir / f"{session.session_id}.jsonl"
-
+    filepath = get_log_dir() / f"{session.session_id}.jsonl"
     since = session._saved_message_count
     records = session.to_log_records(since_index=since)
+    metadata = (session.model, session.turn_count)
+    if since > 1 and session._saved_metadata != metadata:
+        from datetime import datetime, timezone
 
+        records.append(
+            {
+                "type": "meta",
+                "session_id": session.session_id,
+                "model": session.model,
+                "turn_count": session.turn_count,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+    if session._context_dirty:
+        records.append({"type": "context", "messages": session.build_messages()})
     if not records:
         return filepath
 
-    mode = "w" if since <= 1 else "a"
-    with open(filepath, mode, encoding="utf-8") as f:
-        for record in records:
-            f.write(json.dumps(sanitize_log_record(record), ensure_ascii=False) + "\n")
+    # Serialize before touching disk. Append rollback avoids duplicates after a
+    # partial write in this process; a crash-truncated final line is repaired below.
+    payload = "".join(
+        json.dumps(sanitize_log_record(r), ensure_ascii=False) + "\n" for r in records
+    ).encode()
+    with open(filepath, "a+b") as handle:
+        handle.seek(0, os.SEEK_END)
+        offset = handle.tell()
+        if offset:
+            handle.seek(-1, os.SEEK_END)
+            if handle.read(1) != b"\n":
+                handle.seek(0)
+                data = handle.read()
+                offset = data.rfind(b"\n") + 1
+                handle.truncate(offset)
+        try:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        except BaseException:
+            handle.truncate(offset)
+            raise
 
-    session._saved_message_count = len(session.messages)
-
+    session._saved_message_count = len(session._transcript)
+    session._saved_metadata = metadata
+    session._context_dirty = False
     return filepath

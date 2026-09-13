@@ -7,6 +7,9 @@ from typing import AsyncIterator
 class LLMProvider(ABC):
     """LLM Provider 抽象基类 — 定义 chat 接口"""
 
+    async def aclose(self) -> None:
+        """释放客户端资源；无外部资源的 Provider 可沿用空实现。"""
+
     @abstractmethod
     async def chat(
         self,

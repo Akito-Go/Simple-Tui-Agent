@@ -1,6 +1,5 @@
 """目录浏览工具"""
 
-from pathlib import Path
 
 from .base import ToolBase, ToolResult, PermissionLevel
 from .workspace import resolve_in_workspace

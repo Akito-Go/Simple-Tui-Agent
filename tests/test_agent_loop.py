@@ -8,9 +8,7 @@ from tui_agent.agent.types import (
     ToolCallStart,
     ToolCallResult,
     PermissionRequest,
-    PermissionDenied,
     AgentFinished,
-    AgentError,
 )
 from tui_agent.tools.registry import ToolRegistry
 from tui_agent.tools.list_dir import ListDirTool
@@ -218,7 +216,7 @@ class TestMultiToolPermissionQueue:
             events.append(event)
 
         assert any(isinstance(e, PermissionRequest) for e in events)
-        assert agent._queued_tool_calls  # list_dir 排队
+        assert agent.state.queued  # list_dir 排队
 
         cont = []
         async for event in agent.continue_with_confirmation(True):

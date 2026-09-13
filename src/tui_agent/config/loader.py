@@ -121,12 +121,6 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 _LLM_FLAT_KEYS = ("provider", "model", "api_base", "timeout", "max_retries")
 
 
-def _get_default_config() -> dict[str, Any]:
-    """获取内置默认配置"""
-    default_path = Path(__file__).parent.parent.parent.parent / "config" / "default.yaml"
-    return _load_yaml(default_path)
-
-
 def _normalize_llm_section(config_dict: dict[str, Any]) -> dict[str, Any]:
     """将顶层 LLM 字段并入 llm: 块（兼容旧 YAML 扁平写法）"""
     llm = dict(config_dict.get("llm") or {})
@@ -145,7 +139,7 @@ def load_config(project_root: Path | None = None) -> AppConfig:
     - .env: <project_root>/.env (环境变量方式，最高优先级)
     - 项目级: <project_root>/.tui-agent.yaml
     - 用户级: ~/.tui-agent.yaml
-    - 默认: config/default.yaml (内置)
+    - 默认: config/schema.py 中的配置模型
 
     支持通过 .env 文件统一配置所有运行环境变量：
       TUI_AGENT_API_KEY=sk-xxx     # API Key（OpenAI 兼容）
@@ -165,7 +159,7 @@ def load_config(project_root: Path | None = None) -> AppConfig:
     _load_dotenv(project_root)
 
     # 1. 加载默认配置
-    config_dict = _get_default_config()
+    config_dict: dict[str, Any] = {}
 
     # 2. 合并用户级配置
     user_config_path = Path.home() / ".tui-agent.yaml"

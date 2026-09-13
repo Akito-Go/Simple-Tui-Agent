@@ -8,6 +8,7 @@ from .policy import PermissionLevel, PermissionDecision
 @dataclass
 class ToolCall:
     """工具调用信息"""
+
     id: str
     name: str
     arguments: dict
@@ -20,7 +21,9 @@ class PermissionGuard:
         self._pending_confirmation: tuple[ToolCall, PermissionDecision] | None = None
         self._session_allow_all: bool = False
 
-    def check(self, tool_call: ToolCall, permission_level: PermissionLevel) -> PermissionDecision:
+    def check(
+        self, tool_call: ToolCall, permission_level: PermissionLevel
+    ) -> PermissionDecision:
         """
         检查工具调用是否需要用户确认。
 
@@ -51,7 +54,6 @@ class PermissionGuard:
     def enable_session_allow_all(self) -> None:
         """本次会话内 WRITE/SHELL 跳过确认（Shell 黑名单仍生效）"""
         self._session_allow_all = True
-        self._pending_confirmation = None
 
     def reset_session_allow_all(self) -> None:
         """取消本会话全部允许"""

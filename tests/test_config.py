@@ -1,13 +1,12 @@
 """配置管理测试 — 优先级、默认值、环境变量"""
 
-import os
 from pathlib import Path
 
 import pytest
 import yaml
 
 from tui_agent.config.loader import _deep_merge, load_config, get_api_key
-from tui_agent.config.schema import AppConfig, LLMConfig
+from tui_agent.config.schema import AppConfig
 
 
 class TestDeepMerge:
@@ -105,7 +104,7 @@ class TestApiKey:
         env_file.write_text("TUI_AGENT_API_KEY=sk-from-dotenv\n")
 
         # 加载配置（会触发 _load_dotenv）
-        config = load_config(project_root=tmp_path)
+        load_config(project_root=tmp_path)
         assert get_api_key() == "sk-from-dotenv"
 
     def test_env_override_dotenv(self, tmp_path, monkeypatch):
@@ -116,7 +115,7 @@ class TestApiKey:
         env_file = tmp_path / ".env"
         env_file.write_text("TUI_AGENT_API_KEY=sk-from-dotenv\n")
 
-        config = load_config(project_root=tmp_path)
+        load_config(project_root=tmp_path)
         assert get_api_key() == "sk-from-env"
 
     def test_dotenv_with_comments(self, tmp_path, monkeypatch):
@@ -131,7 +130,7 @@ TUI_AGENT_API_KEY=sk-after-comment
 # 另一个注释
 """)
 
-        config = load_config(project_root=tmp_path)
+        load_config(project_root=tmp_path)
         assert get_api_key() == "sk-after-comment"
 
 

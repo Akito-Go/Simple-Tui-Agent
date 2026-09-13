@@ -1,10 +1,9 @@
 """会话加载测试"""
 
-import json
 import pytest
 
 from tui_agent.session.manager import SessionManager
-from tui_agent.session.storage import save_session, get_log_dir
+from tui_agent.session.storage import save_session
 from tui_agent.session.loader import list_sessions, load_session
 
 

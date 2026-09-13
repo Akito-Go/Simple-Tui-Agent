@@ -1,8 +1,27 @@
-# TUI 终端编码 Agent
+<p align="center">
+  <img src="docs/images/sta-cat.png" alt="STA 笑眼坐猫 Logo" width="160" />
+</p>
 
-从零实现的 TUI 终端 AI 编码助手。
+<h1 align="center">STA · Simple TUI Agent</h1>
 
-用户在终端交互界面中通过自然语言下达开发任务，Agent 结合代码仓库上下文自主规划执行步骤，完成工具调用并在结果基础上继续推理。
+<h3 align="center">在终端中用自然语言阅读代码、修改文件与执行开发任务的 AI 编码助手</h3>
+
+<p align="center">
+  <a href="pyproject.toml"><img src="https://img.shields.io/badge/version-v0.1.0-blue" alt="Version 0.1.0" /></a>
+  <a href="#快速开始"><img src="https://img.shields.io/badge/Python-3.11%2B-blue" alt="Python 3.11+" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License MIT" /></a>
+</p>
+
+<p align="center">
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#核心特性">核心特性</a> ·
+  <a href="#配置说明">配置说明</a> ·
+  <a href="docs/ui-guide.md">界面与操作</a> ·
+  <a href="#常见问题">常见问题</a> ·
+  <a href="#版本规范">版本规范</a>
+</p>
+
+---
 
 ## 从 0 到 1 运行指引
 
@@ -21,8 +40,8 @@
 ### 第 1 步：获取代码
 
 ```bash
-git clone https://github.com/Akito-Go/tui-agent.git
-cd tui-agent
+git clone https://github.com/Akito-Go/Simple-Tui-Agent.git
+cd Simple-Tui-Agent
 ```
 
 ### 第 2 步：创建虚拟环境并安装
@@ -103,7 +122,7 @@ tui-agent
 
 ### 第 5 步：首次交互
 
-1. 启动后进入欢迎页（Le+O + Q 版小猫）与新会话，直接输入任务即可，例如：
+1. 启动后进入欢迎页（STA + Q 版小猫）与新会话，直接输入任务即可，例如：
    ```
    帮我看看项目结构
    ```
@@ -112,6 +131,16 @@ tui-agent
 4. 寒暄/闲聊默认不应调工具；有明确编码任务时再浏览与修改
 5. 运行中可用 `/stop` 或 `Esc` 终止；退出用 `/exit` 或 `Ctrl+C`
 
+### 界面与操作
+
+- 底部状态栏优先显示「就绪 / 运行中 / 执行工具 / 等待确认」和模型；窗口较宽时显示任务轮次及 Provider。
+- 工具结果默认收起。点击结果，或用 Tab 聚焦后按 Enter / 空格，可展开、收起本次返回的内容；失败结果默认展开并标红，长内容在结果区滚动。
+- 超出工具预算的输出仍通过保存路径读取，展开操作不会加载磁盘上的完整结果。
+- 确认区位于输入框上方：`Y` 允许一次、`A` 本次会话允许、`N` 拒绝；也可用 ↑↓ + Enter，`Esc` 停止。diff 可滚动查看。
+- 窄窗口自动切换为上下排列的紧凑欢迎页，并简化底栏。建议使用至少 **80×24**；已验证 **48×20** 下输入框和确认选项可见。
+
+完整操作及界面示例见 [UI 使用说明](docs/ui-guide.md)。
+
 ### 常见问题
 
 | 现象 | 处理 |
@@ -119,6 +148,7 @@ tui-agent
 | `externally-managed-environment` | 使用 `.venv`，不要往系统 Python 装包 |
 | `配置错误: 未找到 API Key` | 检查 `.env` 中 `TUI_AGENT_API_KEY` 是否填写 |
 | `LLM 请求失败: bad_request` | 恢复旧会话后若报错，可新建会话；旧 JSONL 已在 loader 层做兼容修复 |
+| 退出时出现 `PoolByteStream` / `generator didn't stop after athrow()` | 在虚拟环境执行 `python -m pip install -e ".[dev]"`，安装项目限定的 OpenAI 2.x，再重启；详见 [兼容性说明](docs/runtime-improvements.md#sdk-流式退出兼容性) |
 | 工具参数含 `[]` 导致界面异常 | 已禁用 Textual markup 解析，升级后应不再出现 |
 
 ---
@@ -146,7 +176,7 @@ python -m tui_agent
 **配置优先级**：
 
 ```
-.env 环境变量  >  项目级 .tui-agent.yaml  >  用户级 ~/.tui-agent.yaml  >  config/default.yaml
+.env 环境变量  >  项目级 .tui-agent.yaml  >  用户级 ~/.tui-agent.yaml  >  配置模型内置默认值
 ```
 
 | 环境变量 | 默认值 | 说明 |
@@ -157,9 +187,9 @@ python -m tui_agent
 | `TUI_AGENT_MODEL` | `gpt-4o-mini` | 当前模型 |
 | `TUI_AGENT_API_BASE` | `https://api.openai.com/v1` | API 地址 |
 | `TUI_AGENT_TIMEOUT` | `120` | 请求超时（秒） |
-| `TUI_AGENT_MAX_TURNS` | `50` | 最大推理轮次 |
+| `TUI_AGENT_MAX_TURNS` | `50` | 单次任务最大推理轮次 |
 | `TUI_AGENT_MAX_RETRIES` | `3` | 网络错误重试次数 |
-| `TUI_AGENT_CONTEXT_MAX_TOKENS` | `32000` | 上下文压缩阈值 |
+| `TUI_AGENT_CONTEXT_MAX_TOKENS` | `32000` | 请求上下文预算（含工具定义和回复预留） |
 | `TUI_AGENT_MODELS` | 内置模型列表 | `/model` 可切换列表 |
 
 > 运行时用 `/model <序号\|名称>` 可立即切换模型（同步更新 system prompt）。
@@ -167,7 +197,7 @@ python -m tui_agent
 ### 使用示例
 
 ```
-╭─ Le+O · tui-agent v0.1.0 ────────────────────────────────────╮
+╭─ STA · tui-agent v0.1.0 ────────────────────────────────────╮
 │  欢迎回来！              │  入门提示                         │
 │     ▄▄      ▄▄           │  只读工具会自动执行…（轮播）      │
 │    ████    ████          ├───────────────────────────────────┤
@@ -218,7 +248,6 @@ tui-agent/
 │   ├── __main__.py             # 入口
 │   ├── agent/
 │   │   ├── loop.py             # Agent Loop（推理→工具→回传）
-│   │   ├── context.py
 │   │   └── types.py            # AgentEvent 事件类型
 │   ├── tools/                  # 7 个工具 + registry
 │   ├── permissions/            # READ/WRITE/SHELL 权限守卫
@@ -232,7 +261,7 @@ tui-agent/
 │   ├── tui/                    # Textual 界面
 │   │   ├── app.py
 │   │   ├── commands.py         # /help /sessions /stop ...
-│   │   ├── welcome.py          # Le+O 欢迎页
+│   │   ├── welcome.py          # STA 欢迎页
 │   │   └── widgets/            # chat / confirm / header / input
 │   └── logging/                # loguru + 脱敏
 ├── tests/
@@ -242,14 +271,27 @@ tui-agent/
 └── pyproject.toml
 ```
 
-> `openspec/`、`.github/`、`deliverables/` 等仅本地保留，已在 `.gitignore`，不推远端。
+> `openspec/`、`deliverables/` 等仅本地保留，已在 `.gitignore`，不推远端。
 
 ## 运行测试
 
 ```bash
 source .venv/bin/activate
+python -m ruff check src tests
 python -m pytest tests/ -v
 ```
+
+CI 已纳入仓库，对 Python 3.11 / 3.12 及 Linux、macOS、Windows 运行检查。
+
+## Runtime 可靠性
+
+- `/stop` 补齐取消结果并清理当前工具队列；轮次额度按每次任务重置。
+- 历史记录与模型上下文分离，压缩后可继续保存和恢复；摘要失败保留原文。`/clear` 保留旧会话文件。
+- 确认前可查看文件 diff；覆盖/编辑会校验已读状态及外部修改，使用原子替换写入。
+- 搜索支持超时和取消；大工具输出有界落盘并返回读取路径，避免撑爆上下文。
+- 本机 Shell 超时/取消会清理进程树，非零退出码显示失败。命令拥有当前用户的系统权限，工作目录限制不等于系统隔离。
+
+详细行为、输出限额和验证范围见 [Runtime 改造说明](docs/runtime-improvements.md)。
 
 ## 技术栈
 
@@ -270,12 +312,25 @@ python -m pytest tests/ -v
 - 支持多模型 / Provider 切换、`/sessions` 会话恢复、上下文压缩
 - `/stop` 与 `Esc` 可随时中断当前任务（取消后台 Task 并复位 UI）
 - 闲聊/寒暄时 system prompt 引导不主动扫仓库
-- 工作区沙箱、敏感文件拦截、Shell 高危命令黑名单
+- 文件工具工作区边界、敏感文件及符号链接目标拦截；本机 Shell 需确认并有高危命令黑名单（不提供系统沙箱隔离）
 - 权限确认支持「本次会话全部允许」（不绕过 Shell 黑名单）
 
 ## 更多文档
 
+- [界面使用说明](docs/ui-guide.md)
 - [架构设计](docs/architecture.md)
+- [Runtime 改造与边界说明](docs/runtime-improvements.md)
+
+## 版本规范
+
+项目采用 [Semantic Versioning 2.0.0（SemVer）](https://semver.org/lang/zh-CN/)，版本格式为 `MAJOR.MINOR.PATCH`，以 `pyproject.toml` 中的 `project.version` 为唯一版本来源。当前版本为 **0.1.0**，处于初始开发阶段，接口与行为尚未承诺稳定。
+
+- `0.x.y` 阶段：新增功能或不兼容调整递增 `MINOR`，兼容的问题修复递增 `PATCH`。
+- 自 `1.0.0` 起：不兼容变更递增 `MAJOR`，向后兼容的新功能递增 `MINOR`，向后兼容的问题修复递增 `PATCH`；递增高位时将低位归零。
+- 发布前同步更新 README 版本徽章；Git 标签使用 `v0.1.0` 这样的形式，其中 `v` 是标签前缀，不属于 SemVer 版本号。
+- 预发布可使用 `0.2.0-rc.1`；Python 包构建时按 PEP 440 表示为 `0.2.0rc1`。两者表达同一个候选版本，不混写版本格式。
+
+顶部徽章展示源码版本，不代表已经创建对应的发布或 Git 标签。
 
 ## License
 

@@ -1,5 +1,6 @@
 """内置工具注册"""
 
+from .file_state import FileStateCache
 from .edit_file import EditFileTool
 from .glob_search import GlobSearchTool
 from .grep_search import GrepSearchTool
@@ -13,13 +14,15 @@ from .write_file import WriteFileTool
 def create_default_registry() -> ToolRegistry:
     """创建并注册全部内置工具"""
     registry = ToolRegistry()
+    state = FileStateCache()
+    registry.file_state = state
     for tool in (
         ListDirTool(),
-        ReadFileTool(),
+        ReadFileTool(state),
         GlobSearchTool(),
         GrepSearchTool(),
-        WriteFileTool(),
-        EditFileTool(),
+        WriteFileTool(state),
+        EditFileTool(state),
         ShellExecTool(),
     ):
         registry.register(tool)

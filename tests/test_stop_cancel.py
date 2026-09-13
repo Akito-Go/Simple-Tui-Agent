@@ -13,6 +13,7 @@ class _FakeChat:
         self._streaming_widget = object()
         self.messages: list[str] = []
         self.finished = False
+        self.tool_running = True
 
     def finish_streaming(self) -> str:
         self.finished = True
@@ -42,6 +43,9 @@ class _FakeChat:
 
     def add_assistant_message(self, *args, **kwargs) -> None:
         pass
+
+    def hide_tool_running(self) -> None:
+        self.tool_running = False
 
     def hide_thinking(self) -> None:
         pass
@@ -81,6 +85,7 @@ async def test_process_events_cancel_resets_running_flag():
     assert app._stop_requested is False
     assert app._agent_task is None
     assert fake_chat.finished is True
+    assert fake_chat.tool_running is False
     assert any("终止" in m for m in fake_chat.messages)
 
 

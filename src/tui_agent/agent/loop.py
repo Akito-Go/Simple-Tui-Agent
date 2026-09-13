@@ -1,13 +1,15 @@
-"""Agent Loop 核心 — 自实现，不使用任何 Agent SDK/Framework"""
+"""Agent 运行时：任务状态、确认与统一工具执行。"""
 
 import asyncio
 import json
+from contextlib import aclosing
+from dataclasses import dataclass, field
 from typing import AsyncIterator
 
+from .executor import ToolExecutor
 from .types import (
     TextDelta,
     ToolCallStart,
-    ToolCallResult,
     PermissionRequest,
     PermissionDenied,
     AgentFinished,
@@ -20,11 +22,17 @@ from ..permissions.guard import PermissionGuard, ToolCall
 from ..permissions.policy import PermissionDecision
 from ..session.manager import SessionManager
 from ..session.storage import save_session
+from ..session.compressor import compress_if_needed, estimate_tokens
+
+
+@dataclass
+class RunState:
+    turn_count: int = 0
+    queued: list[dict] = field(default_factory=list)
+    compression_failures: int = 0
 
 
 class AgentLoop:
-    """Agent 主循环 — 模型决策 → 工具调用 → 结果回传 → 继续推理"""
-
     def __init__(
         self,
         llm_provider: LLMProvider,
@@ -40,208 +48,201 @@ class AgentLoop:
         self.session = session
         self.max_turns = max_turns
         self.context_max_tokens = context_max_tokens
-        # 权限确认暂停时，尚未执行的后续 tool_calls
-        self._queued_tool_calls: list[dict] = []
+        self.state = RunState()
+        self.executor = ToolExecutor(tool_registry, session)
+        self._busy = False
+
+    def stop(self, reason: str = "用户取消了操作；如需执行，请重新发起任务") -> None:
+        """终止当前批次，保证工具结果配对。调用方先取消运行中的 Task。"""
+        self.session.close_pending_tools(reason)
+        self.permission_guard.deny()
+        self.state.queued.clear()
+        save_session(self.session)
 
     async def run(self, user_input: str) -> AsyncIterator[AgentEvent]:
-        """
-        执行 Agent 主循环，流式产出事件。
-
-        Args:
-            user_input: 用户输入
-
-        Yields:
-            AgentEvent: 各类事件，供 TUI 层消费
-        """
-        self.session.add_user_message(user_input)
-        async for event in self._continue_loop():
-            yield event
-
-    async def continue_with_confirmation(self, confirmed: bool) -> AsyncIterator[AgentEvent]:
-        """
-        用户确认/拒绝后继续执行。
-
-        Args:
-            confirmed: True 表示确认，False 表示拒绝
-        """
-        pending = self.permission_guard.pending_tool_call
-        if pending is None:
-            yield AgentError(message="没有待确认的操作")
+        if self._busy or self.permission_guard.pending_tool_call is not None:
+            yield AgentError("已有任务运行或等待确认，请先停止当前任务")
             return
+        self._busy = True
+        self.state = RunState()
+        self.session.close_pending_tools()
+        self.session.add_user_message(user_input)
+        try:
+            save_session(self.session)
+            async with aclosing(self._continue_loop()) as events:
+                async for event in events:
+                    yield event
+        except asyncio.CancelledError:
+            self.stop()
+            raise
+        except Exception:
+            self.stop("工具执行异常，操作已终止")
+            raise
+        finally:
+            self._busy = False
 
-        if confirmed:
-            self.permission_guard.confirm()
-            yield ToolCallStart(tool_id=pending.id, name=pending.name, arguments=pending.arguments)
-            result = await self.tool_registry.execute(pending.name, pending.arguments)
-            result_text = result.output if result.success else f"[错误] {result.error}"
-            self.session.add_tool_result(pending.id, pending.name, result_text)
-            yield ToolCallResult(
-                tool_id=pending.id,
-                name=pending.name,
-                success=result.success,
-                output=result_text,
-            )
-        else:
-            self.permission_guard.deny()
-            result_text = f"用户拒绝了 {pending.name} 操作"
-            self.session.add_tool_result(pending.id, pending.name, result_text)
-            yield PermissionDenied(tool_id=pending.id, name=pending.name)
+    async def continue_with_confirmation(
+        self, confirmed: bool, allow_session: bool = False
+    ) -> AsyncIterator[AgentEvent]:
+        pending = self.permission_guard.pending_tool_call
+        if self._busy or pending is None:
+            yield AgentError("没有待确认的操作，或当前任务正在运行")
+            return
+        self._busy = True
+        try:
+            if confirmed:
+                if allow_session:
+                    self.permission_guard.enable_session_allow_all()
+                self.permission_guard.confirm()
+                yield ToolCallStart(pending.id, pending.name, pending.arguments)
+                yield await self.executor.execute(pending)
+            else:
+                self.permission_guard.deny()
+                self.executor.record(pending, False, f"用户拒绝了 {pending.name} 操作")
+                yield PermissionDenied(pending.id, pending.name)
+            save_session(self.session)
 
-        # 先消化同轮剩余工具，再继续推理
-        queued = self._queued_tool_calls
-        self._queued_tool_calls = []
-        if queued:
+            queued, self.state.queued = self.state.queued, []
             async for event in self._execute_tool_calls(queued):
                 yield event
                 if isinstance(event, PermissionRequest):
-                    save_session(self.session)
                     return
-
-        async for event in self._continue_loop():
-            yield event
+            async with aclosing(self._continue_loop()) as events:
+                async for event in events:
+                    yield event
+        except asyncio.CancelledError:
+            self.stop()
+            raise
+        except Exception:
+            self.stop("工具执行异常，操作已终止")
+            raise
+        finally:
+            self._busy = False
 
     async def _continue_loop(self) -> AsyncIterator[AgentEvent]:
-        """从当前上下文继续推理"""
-        for _ in range(self.session.turn_count, self.max_turns):
+        while self.state.turn_count < self.max_turns:
+            self.state.turn_count += 1
             self.session.increment_turn()
-
-            from ..session.compressor import compress_if_needed
-            await compress_if_needed(self.session, self.llm_provider, self.context_max_tokens)
-
-            messages = self.session.build_messages()
             tools_schema = self.tool_registry.to_openai_schemas()
+            # 工具定义也消耗输入预算，另留出回复空间。
+            reserve = min(2048, self.context_max_tokens // 8)
+            input_budget = max(
+                1,
+                self.context_max_tokens
+                - reserve
+                - estimate_tokens([{"tools": tools_schema}]),
+            )
+            if self.state.compression_failures < 3:
+                try:
+                    await compress_if_needed(
+                        self.session, self.llm_provider, input_budget
+                    )
+                except (ValueError, RuntimeError):
+                    self.state.compression_failures += 1
+            messages = self.session.build_api_messages()
+            if estimate_tokens(messages) > input_budget:
+                message = (
+                    "上下文仍超出预算，原始历史已保留；请提高上下文预算或开始新会话"
+                )
+                save_session(self.session)
+                yield AgentError(message)
+                yield AgentFinished(message)
+                return
 
             text_buffer: list[str] = []
-            tool_calls_buffer: list[dict] = []
-
+            tool_calls: list[dict] = []
             try:
-                async for event in self.llm_provider.chat(
-                    messages=messages,
-                    tools=tools_schema,
-                    stream=True,
-                ):
-                    if event["type"] == "text_delta":
-                        text_buffer.append(event["content"])
-                        yield TextDelta(content=event["content"])
-                    elif event["type"] == "tool_calls":
-                        tool_calls_buffer = event["tool_calls"]
-                    elif event["type"] == "error":
-                        error_msg = event["message"]
-                        self.session.add_assistant_message(f"[错误] {error_msg}")
-                        yield AgentError(message=error_msg)
-                        yield AgentFinished(message=f"因错误终止: {error_msg}")
-                        save_session(self.session)
-                        return
-                    elif event["type"] == "finish":
-                        break
+                async with aclosing(
+                    self.llm_provider.chat(
+                        messages=messages, tools=tools_schema, stream=True
+                    )
+                ) as stream:
+                    async for event in stream:
+                        if event["type"] in ("text_delta", "text"):
+                            text_buffer.append(event["content"])
+                            yield TextDelta(event["content"])
+                        elif event["type"] == "tool_calls":
+                            tool_calls = event["tool_calls"]
+                        elif event["type"] == "error":
+                            raise RuntimeError(event["message"])
+                        elif event["type"] == "finish":
+                            break
             except asyncio.CancelledError:
+                if text_buffer:
+                    self.session.add_assistant_message("".join(text_buffer))
                 raise
-            except Exception as e:
-                error_msg = f"Agent Loop 异常: {str(e)}"
-                self.session.add_assistant_message(f"[异常] {error_msg}")
-                yield AgentError(message=error_msg)
-                yield AgentFinished(message=f"因异常终止: {error_msg}")
+            except Exception as exc:
+                message = f"LLM 请求失败: {exc}"
+                self.session.add_assistant_message(
+                    "".join(text_buffer) + f"\n[错误] {message}"
+                )
                 save_session(self.session)
+                yield AgentError(message)
+                yield AgentFinished(f"因错误终止: {message}")
                 return
 
-            if tool_calls_buffer:
-                self.session.add_assistant_message(
-                    content="".join(text_buffer),
-                    tool_calls=tool_calls_buffer,
-                )
-                async for event in self._execute_tool_calls(tool_calls_buffer):
-                    yield event
-                    if isinstance(event, PermissionRequest):
-                        save_session(self.session)
-                        return
-                continue
-
-            full_text = "".join(text_buffer)
-            self.session.add_assistant_message(content=full_text)
-            yield AgentFinished(message=full_text)
+            self.session.add_assistant_message(
+                "".join(text_buffer), tool_calls=tool_calls
+            )
             save_session(self.session)
-            return
+            if not tool_calls:
+                yield AgentFinished("".join(text_buffer))
+                return
+            async for event in self._execute_tool_calls(tool_calls):
+                yield event
+                if isinstance(event, PermissionRequest):
+                    return
 
-        msg = f"已达到最大轮次 ({self.max_turns})，任务终止"
-        self.session.add_assistant_message(msg)
-        yield AgentFinished(message=msg)
+        message = f"已达到最大轮次 ({self.max_turns})，任务终止"
+        self.session.add_assistant_message(message)
         save_session(self.session)
+        yield AgentFinished(message)
 
-    async def _execute_tool_calls(self, tool_calls: list[dict]) -> AsyncIterator[AgentEvent]:
-        """
-        顺序执行工具调用。若遇到需确认的工具，将后续调用放入队列并 yield PermissionRequest。
-        """
+    async def _execute_tool_calls(
+        self, tool_calls: list[dict]
+    ) -> AsyncIterator[AgentEvent]:
         for index, tc in enumerate(tool_calls):
-            tool_name = tc["function"]["name"]
+            name = tc["function"]["name"]
             try:
                 arguments = json.loads(tc["function"]["arguments"])
-            except json.JSONDecodeError:
-                arguments = {}
-
-            tool = self.tool_registry.get(tool_name)
-            if tool is None:
-                result_text = f"未知工具: {tool_name}"
-                self.session.add_tool_result(tc["id"], tool_name, result_text)
-                yield ToolCallResult(
-                    tool_id=tc["id"],
-                    name=tool_name,
-                    success=False,
-                    output=result_text,
-                )
-                continue
-
-            # Shell 黑名单：确认前即拦截，避免用户确认后仍被拒绝
-            if tool_name == "shell_exec":
+            except (json.JSONDecodeError, TypeError):
+                arguments = None
+            call = ToolCall(tc["id"], name, arguments)
+            error = self.tool_registry.validate(name, arguments)
+            if not error and name == "shell_exec":
                 from ..tools.shell_policy import check_shell_command
 
-                blocked = check_shell_command(str(arguments.get("command", "")))
-                if blocked:
-                    self.session.add_tool_result(tc["id"], tool_name, blocked)
-                    yield ToolCallResult(
-                        tool_id=tc["id"],
-                        name=tool_name,
-                        success=False,
-                        output=blocked,
-                    )
-                    continue
-
-            tool_call_obj = ToolCall(id=tc["id"], name=tool_name, arguments=arguments)
-            decision = self.permission_guard.check(tool_call_obj, tool.permission_level)
-
-            if decision == PermissionDecision.ASK:
-                self._queued_tool_calls = tool_calls[index + 1 :]
-                yield PermissionRequest(
-                    tool_id=tc["id"],
-                    name=tool_name,
-                    arguments=arguments,
-                    summary=self._format_tool_summary(tool_name, arguments),
-                )
-                return
-
-            if decision == PermissionDecision.DENY:
-                result_text = f"用户拒绝了 {tool_name} 操作"
-                self.session.add_tool_result(tc["id"], tool_name, result_text)
-                yield PermissionDenied(tool_id=tc["id"], name=tool_name)
+                error = check_shell_command(arguments["command"])
+            if error:
+                result = self.executor.record(call, False, error)
+                save_session(self.session)
+                yield result
                 continue
 
-            yield ToolCallStart(tool_id=tc["id"], name=tool_name, arguments=arguments)
-            result = await self.tool_registry.execute(tool_name, arguments)
-            result_text = result.output if result.success else f"[错误] {result.error}"
-            self.session.add_tool_result(tc["id"], tool_name, result_text)
-            yield ToolCallResult(
-                tool_id=tc["id"],
-                name=tool_name,
-                success=result.success,
-                output=result_text,
-            )
+            tool = self.tool_registry.get(name)
+            decision = self.permission_guard.check(call, tool.permission_level)
+            if decision == PermissionDecision.ASK:
+                self.state.queued = tool_calls[index + 1 :]
+                save_session(self.session)
+                yield PermissionRequest(
+                    call.id, name, arguments, self._format_tool_summary(name, arguments)
+                )
+                return
+            if decision == PermissionDecision.DENY:
+                self.executor.record(call, False, f"用户拒绝了 {name} 操作")
+                save_session(self.session)
+                yield PermissionDenied(call.id, name)
+                continue
+            yield ToolCallStart(call.id, name, arguments)
+            result = await self.executor.execute(call)
+            save_session(self.session)
+            yield result
 
     def _format_tool_summary(self, name: str, arguments: dict) -> str:
-        """格式化工具调用摘要"""
-        if name == "write_file":
-            return f"写入文件: {arguments.get('path', '?')}"
-        if name == "edit_file":
-            return f"编辑文件: {arguments.get('path', '?')}"
         if name == "shell_exec":
-            cmd = arguments.get("command", "?")
-            return f"执行命令: {cmd[:80]}"
+            return f"在本机执行命令（受当前用户系统权限约束）: {arguments['command']}"
+        if name in ("write_file", "edit_file"):
+            from ..tools.file_state import preview_change
+
+            return preview_change(name, arguments)
         return f"{name}: {json.dumps(arguments, ensure_ascii=False)[:100]}"

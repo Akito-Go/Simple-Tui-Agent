@@ -44,7 +44,9 @@ logger = get_logger(__name__)
 
 
 class TuiAgentApp(App):
-    """TUI Agent 主应用"""
+    """STA 主应用"""
+
+    TITLE = "STA"
 
     # Esc 全局优先：运行中 / 等待确认时均可中断（与 /stop 相同）
     BINDINGS = [
@@ -74,7 +76,8 @@ class TuiAgentApp(App):
             header = self.screen.query_one("#header", HeaderWidget)
         except Exception:
             return
-        turn = self.session.turn_count if self.session else 0
+        self.screen.update_hints(status)
+        turn = self.agent_loop.state.turn_count if self.agent_loop else 0
         header.update_status(
             model=self.config.llm.model,
             turn=turn,
@@ -169,7 +172,9 @@ class TuiAgentApp(App):
             self._welcome_shown = False
             self._show_welcome(
                 chat,
-                recent_sessions=recent_sessions if recent_sessions is not None else list_sessions(),
+                recent_sessions=recent_sessions
+                if recent_sessions is not None
+                else list_sessions(),
             )
         if session is not None:
             chat.add_system_message(
@@ -186,7 +191,7 @@ class TuiAgentApp(App):
         text = event.value.strip()
 
         # 会话选择模式
-        if getattr(self, '_selecting_session', False):
+        if getattr(self, "_selecting_session", False):
             cmd_result = parse_command(text)
             if cmd_result.is_command:
                 self._handle_command(cmd_result.command, cmd_result.args)
@@ -273,7 +278,7 @@ class TuiAgentApp(App):
         ]
         for i, s in enumerate(sessions[:9], 1):
             preview = s.get("preview", "")
-            preview_part = f'  「{preview}」' if preview else ""
+            preview_part = f"  「{preview}」" if preview else ""
             lines.append(
                 f"  {i}. {s['last_active']} · {s['model']} · "
                 f"轮次 {s['turn_count']} · {s['msg_count']} 条消息{preview_part}"
@@ -349,6 +354,9 @@ class TuiAgentApp(App):
                 self.session.clear()
             if self.agent_loop is not None:
                 self.agent_loop.permission_guard.reset_session_allow_all()
+                state = getattr(self.agent_loop.tool_registry, "file_state", None)
+                if state is not None:
+                    state.clear()
             chat.clear()
             from ..session.loader import list_sessions
 
@@ -400,7 +408,8 @@ class TuiAgentApp(App):
 📊 运行状态:
   Provider: {self.config.llm.provider}
   模型: {self.config.llm.model}
-  轮次: {self.session.turn_count}/{self.config.max_turns}
+  当前任务轮次: {self.agent_loop.state.turn_count if self.agent_loop else 0}/{self.config.max_turns}
+  会话累计轮次: {self.session.turn_count}
   API: {self.config.llm.api_base}
   超时: {self.config.llm.timeout}s
   重试: {self.config.llm.max_retries}次
@@ -433,7 +442,7 @@ class TuiAgentApp(App):
                 self._waiting_confirmation = False
                 self._set_input_mode(waiting_confirm=False)
                 if self.agent_loop is not None:
-                    self.agent_loop.permission_guard.deny()
+                    self.agent_loop.stop()
                 if self._agent_task is not None and not self._agent_task.done():
                     self._agent_task.cancel()
                 self._agent_task = None
@@ -458,17 +467,38 @@ class TuiAgentApp(App):
             chat.add_system_message("正在退出...")
             if self.session:
                 from ..session.storage import save_session
+
                 save_session(self.session)
             self.exit()
 
-    def _rebuild_llm_provider(self) -> None:
-        """按当前 config.llm 重建 Provider 并挂到 AgentLoop"""
+    def _rebuild_llm_provider(self, candidate) -> None:
+        """候选客户端构建成功后再一次性提交配置。"""
         if self.config is None or self.agent_loop is None:
-            return
-        api_key = get_api_key(self.config.llm.provider)
-        self.agent_loop.llm_provider = create_llm_provider(self.config.llm, api_key)
+            raise ValueError("Agent 未初始化")
+        if self._agent_running or self._waiting_confirmation:
+            raise ValueError("请先等待当前任务结束，或使用 /stop")
+        provider = create_llm_provider(candidate, get_api_key(candidate.provider))
+        old = self.agent_loop.llm_provider
+        self.config.llm = candidate
+        self.agent_loop.llm_provider = provider
+        if self.session is not None:
+            self.session.set_model(candidate.model)
 
-    def _handle_model_command(self, chat: ChatWidget, header: HeaderWidget, args: str) -> None:
+        async def close_old():
+            try:
+                await old.aclose()
+            except Exception as exc:
+                logger.warning(f"关闭旧 Provider 失败: {exc}")
+
+        task = asyncio.create_task(close_old())
+        if not hasattr(self, "_provider_cleanup_tasks"):
+            self._provider_cleanup_tasks = set()
+        self._provider_cleanup_tasks.add(task)
+        task.add_done_callback(self._provider_cleanup_tasks.discard)
+
+    def _handle_model_command(
+        self, chat: ChatWidget, header: HeaderWidget, args: str
+    ) -> None:
         """列出或切换模型（必要时跨 Provider 重建客户端）"""
         if not self.config:
             chat.add_system_message("Agent 未初始化")
@@ -499,9 +529,7 @@ class TuiAgentApp(App):
             target = models[index]
 
         if target not in models:
-            chat.add_system_message(
-                f"未知模型: {target}\n使用 /model 查看可用列表"
-            )
+            chat.add_system_message(f"未知模型: {target}\n使用 /model 查看可用列表")
             return
 
         old_provider = normalize_provider_name(self.config.llm.provider)
@@ -509,23 +537,16 @@ class TuiAgentApp(App):
         new_provider = inferred or old_provider
         provider_changed = new_provider != old_provider
 
-        self.config.llm.model = target
+        candidate = self.config.llm.model_copy(deep=True)
+        candidate.model = target
         if provider_changed:
-            apply_provider_defaults(self.config.llm, new_provider)
-            try:
-                self._rebuild_llm_provider()
-            except ValueError as e:
-                # 回滚 provider，至少保留模型名切换提示
-                apply_provider_defaults(self.config.llm, old_provider)
-                chat.add_system_message(f"❌ 切换 Provider 失败: {e}")
-                return
-        elif self.agent_loop is not None:
-            self.agent_loop.llm_provider.model = target
+            apply_provider_defaults(candidate, new_provider)
+        try:
+            self._rebuild_llm_provider(candidate)
+        except Exception as e:
+            chat.add_system_message(f"❌ 切换模型失败: {e}")
+            return
 
-        if self.session is not None:
-            self.session.set_model(target)
-
-        turn = self.session.turn_count if self.session else 0
         self._update_header()
         if provider_changed:
             chat.add_system_message(
@@ -534,7 +555,9 @@ class TuiAgentApp(App):
         else:
             chat.add_system_message(f"✅ 已切换模型: {target}")
 
-    def _handle_provider_command(self, chat: ChatWidget, header: HeaderWidget, args: str) -> None:
+    def _handle_provider_command(
+        self, chat: ChatWidget, header: HeaderWidget, args: str
+    ) -> None:
         """查看或切换 LLM Provider"""
         if not self.config:
             chat.add_system_message("Agent 未初始化")
@@ -563,11 +586,11 @@ class TuiAgentApp(App):
             return
 
         old = current
-        apply_provider_defaults(self.config.llm, target)
+        candidate = self.config.llm.model_copy(deep=True)
+        apply_provider_defaults(candidate, target)
         try:
-            self._rebuild_llm_provider()
-        except ValueError as e:
-            apply_provider_defaults(self.config.llm, old)
+            self._rebuild_llm_provider(candidate)
+        except Exception as e:
             chat.add_system_message(f"❌ 切换失败: {e}")
             return
 
@@ -612,13 +635,12 @@ class TuiAgentApp(App):
         self._set_input_mode(waiting_confirm=False)
 
         if confirmed and allow_session and self.agent_loop is not None:
-            self.agent_loop.permission_guard.enable_session_allow_all()
             chat = screen.query_one("#chat", ChatWidget)
             chat.add_system_message(
                 "已开启：本次会话写入/Shell 将跳过确认（黑名单仍生效）"
             )
 
-        self._run_agent_continue(confirmed=confirmed)
+        self._run_agent_continue(confirmed=confirmed, allow_session=allow_session)
 
     def _run_agent(self, user_input: str) -> None:
         """运行 Agent"""
@@ -627,7 +649,6 @@ class TuiAgentApp(App):
 
         screen = self.screen
         chat = screen.query_one("#chat", ChatWidget)
-        header = screen.query_one("#header", HeaderWidget)
         chat.add_user_message(user_input)
         chat.show_thinking()
 
@@ -635,31 +656,43 @@ class TuiAgentApp(App):
 
         self._agent_running = True
         self._stop_requested = False
-        self._agent_task = asyncio.create_task(self._process_events(self.agent_loop.run(user_input)))
+        self._agent_task = asyncio.create_task(
+            self._process_events(self.agent_loop.run(user_input))
+        )
 
-    def _run_agent_continue(self, confirmed: bool) -> None:
+    def _run_agent_continue(self, confirmed: bool, allow_session: bool = False) -> None:
         """继续 Agent 执行（权限确认后）"""
         if self.agent_loop is None:
             return
 
-        screen = self.screen
-        header = screen.query_one("#header", HeaderWidget)
         self._update_header(status="运行中")
 
         self._agent_running = True
         self._stop_requested = False
-        self._agent_task = asyncio.create_task(self._process_events(self.agent_loop.continue_with_confirmation(confirmed)))
+        self._agent_task = asyncio.create_task(
+            self._process_events(
+                self.agent_loop.continue_with_confirmation(
+                    confirmed, allow_session=allow_session
+                )
+            )
+        )
 
-    def _finalize_stopped(self, chat: ChatWidget, *, message: str = "⏹ 任务已终止") -> None:
+    def _finalize_stopped(
+        self, chat: ChatWidget, *, message: str = "⏹ 任务已终止"
+    ) -> None:
         """stop/cancel 后统一复位 UI 与运行标志"""
         if chat._streaming_widget is not None:
             chat.finish_streaming()
+        chat.hide_tool_running()
+        chat.hide_thinking()
         chat.add_system_message(message)
         self._update_header(status="就绪")
         self._agent_running = False
         self._stop_requested = False
         self._agent_task = None
-        if self.session is not None:
+        if getattr(self, "agent_loop", None) is not None:
+            self.agent_loop.stop()
+        elif self.session is not None:
             from ..session.storage import save_session
 
             save_session(self.session)
@@ -704,6 +737,14 @@ class TuiAgentApp(App):
                             success=event.success,
                         )
                         pending_tool = None
+                    else:
+                        chat.add_tool_result(
+                            event.name,
+                            {},
+                            auto=True,
+                            result=event.output,
+                            success=event.success,
+                        )
                     self._update_header(status="运行中")
 
                 elif isinstance(event, PermissionRequest):
@@ -740,7 +781,31 @@ class TuiAgentApp(App):
                 chat.finish_streaming()
             chat.add_error(f"Agent 异常: {e}")
             logger.error(f"Agent 异常: {e}")
+            if self.agent_loop is not None:
+                try:
+                    self.agent_loop.stop("运行异常，操作已终止")
+                except OSError as save_error:
+                    chat.add_error(f"历史保存失败，内存记录仍保留: {save_error}")
             self._update_header(status="就绪")
             self._agent_running = False
             self._stop_requested = False
             self._agent_task = None
+
+        finally:
+            # 关闭暂停在 yield 的生成器，及时释放运行锁（确认态保留待执行调用）。
+            await events.aclose()
+            if not self._agent_running:
+                chat.hide_thinking()
+
+    async def on_unmount(self) -> None:
+        """退出前等待运行任务收尾，再释放当前及被替换的客户端。"""
+        task = self._agent_task
+        if task is not None and task is not asyncio.current_task():
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        pending = list(getattr(self, "_provider_cleanup_tasks", ()))
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        if self.agent_loop is not None:
+            await self.agent_loop.llm_provider.aclose()

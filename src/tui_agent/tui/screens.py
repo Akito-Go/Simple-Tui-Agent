@@ -1,9 +1,10 @@
-"""主界面布局 — 对齐 Claude Code：橙框欢迎页 + 细线输入区"""
+"""主界面布局 — 自适应欢迎页、工具详情与状态反馈"""
 
 from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.containers import Container, Horizontal
 from textual.widgets import Static
+from textual import events
 
 from .widgets.header import HeaderWidget
 from .widgets.chat import ChatWidget
@@ -11,7 +12,7 @@ from .widgets.input import InputWidget
 
 
 class MainScreen(Screen):
-    """主界面 — Claude Code 骨架"""
+    """主界面 — 对话区和固定底部操作区"""
 
     CSS = """
     Screen {
@@ -19,7 +20,6 @@ class MainScreen(Screen):
     }
 
     #header {
-        dock: bottom;
         height: 1;
         background: #1a1a1a;
         color: #8a857c;
@@ -37,7 +37,6 @@ class MainScreen(Screen):
 
     /* 底部：确认槽 + 细线夹着的单行输入 + 快捷提示 */
     #input-container {
-        dock: bottom;
         height: auto;
         padding: 0 1;
         background: #1a1a1a;
@@ -81,7 +80,7 @@ class MainScreen(Screen):
     }
 
     #footer-hint {
-        color: #6b6560;
+        color: #a9a39a;
         padding: 0 1;
         height: 1;
         text-style: dim;
@@ -158,7 +157,7 @@ class MainScreen(Screen):
         color: #8a857c;
         margin: 1 0;
         background: #222222;
-        border-left: thick #6b6560;
+        border-left: thick #a9a39a;
         padding: 0 1;
     }
 
@@ -171,10 +170,16 @@ class MainScreen(Screen):
     .confirm-inline {
         margin: 0;
         height: auto;
-        max-height: 10;
+        max-height: 17;
         border: solid #e2c08d;
         background: #2a2418;
         padding: 0 1;
+    }
+
+    .confirm-preview {
+        height: auto;
+        max-height: 8;
+        overflow-y: auto;
     }
 
     .confirm-hint {
@@ -197,23 +202,51 @@ class MainScreen(Screen):
         height: 1;
         padding: 0 1;
     }
+    Screen.narrow #chat { padding: 0 1; }
+    Screen.short .confirm-preview { max-height: 3; }
+    Screen.short .confirm-inline { max-height: 11; }
+    #input-wrap:focus-within { border-top: solid #da7756; }
+    Screen.awaiting #input-wrap { border-top: solid #e2c08d; }
+    .tool-result:focus { border-left: solid #da7756; background: #24211e; }
+    .tool-result { height: auto; max-height: 16; overflow-y: auto; }
+    .tool-failed { color: #e06c75; border-left: solid #e06c75; }
     """
 
     def compose(self) -> ComposeResult:
-        # dock:bottom 先挂载贴最底 → 状态行 → 输入区（上细线 / > / 下细线 / 提示）
+        # 正常纵向布局：聊天占余量，底部操作区和状态行各占独立空间。
         yield ChatWidget()
-        yield HeaderWidget()
         with Container(id="input-container"):
             yield Container(id="confirm-slot")
             with Horizontal(id="input-wrap"):
                 yield Static(">", id="input-prompt", markup=False)
                 yield InputWidget()
             yield Static(
-                "Esc=/stop · /help · /sessions · 写入与 Shell 需确认 · 只读自动执行",
+                "Enter 发送 · /help 帮助 · /sessions 历史 · Esc 停止",
                 id="footer-hint",
                 markup=False,
             )
 
+        yield HeaderWidget()
+
     def on_mount(self) -> None:
         """Screen 挂载后通知 App 初始化 Agent"""
         self.app.init_agent()
+
+    def on_resize(self, event: events.Resize) -> None:
+        self.set_class(event.size.width < 76, "narrow")
+        self.set_class(event.size.height < 30, "short")
+        self.update_hints(getattr(self, "_display_status", "就绪"))
+
+    def update_hints(self, status: str) -> None:
+        self._display_status = status
+        waiting = status == "等待确认"
+        self.set_class(waiting, "awaiting")
+        if waiting:
+            hint = "Y 单次允许 · A 本会话允许 · N 拒绝 · Esc 停止"
+        elif status == "运行中" or status.startswith("执行 "):
+            hint = "Esc 停止 · 点击工具结果展开 · 可滚动查看历史"
+        else:
+            hint = "Enter 发送 · /help 帮助 · /sessions 历史"
+        if self.has_class("narrow"):
+            hint = "Y 允许 · A 会话 · N 拒绝 · Esc 停止" if waiting else "Esc 停止 · /help · /sessions"
+        self.query_one("#footer-hint", Static).update(hint)

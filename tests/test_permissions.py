@@ -1,6 +1,5 @@
 """权限控制测试 — 只读自动执行、写入需确认、拒绝后不执行"""
 
-import pytest
 
 from tui_agent.permissions.guard import PermissionGuard, ToolCall
 from tui_agent.permissions.policy import PermissionLevel, PermissionDecision

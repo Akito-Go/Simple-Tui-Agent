@@ -1,6 +1,7 @@
 """OpenAI 兼容协议实现"""
 
 import asyncio
+from contextlib import aclosing
 from typing import AsyncIterator
 
 from openai import AsyncOpenAI
@@ -12,7 +13,14 @@ from .retry import with_retry
 class OpenAICompatProvider(LLMProvider):
     """通过 openai SDK 接入任意 OpenAI 兼容 API"""
 
-    def __init__(self, api_key: str, base_url: str, model: str, timeout: int = 120, max_retries: int = 3):
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str,
+        model: str,
+        timeout: int = 120,
+        max_retries: int = 3,
+    ):
         self.model = model
         self.timeout = timeout
         self.max_retries = max_retries
@@ -23,6 +31,9 @@ class OpenAICompatProvider(LLMProvider):
             max_retries=0,  # 我们自己控制重试
         )
 
+    async def aclose(self) -> None:
+        await self.client.close()
+
     async def chat(
         self,
         messages: list[dict],
@@ -31,8 +42,9 @@ class OpenAICompatProvider(LLMProvider):
     ) -> AsyncIterator[dict]:
         """发起 LLM 请求，流式产出响应事件"""
         try:
-            async for event in self._do_chat(messages, tools, stream):
-                yield event
+            async with aclosing(self._do_chat(messages, tools, stream)) as events:
+                async for event in events:
+                    yield event
         except asyncio.CancelledError:
             raise
         except asyncio.TimeoutError:
@@ -62,8 +74,12 @@ class OpenAICompatProvider(LLMProvider):
         )
 
         if stream:
-            async for event in self._handle_stream(response):
-                yield event
+            try:
+                async with aclosing(self._handle_stream(response)) as events:
+                    async for event in events:
+                        yield event
+            finally:
+                await response.close()
         else:
             for event in self._handle_non_stream(response):
                 yield event
@@ -88,21 +104,27 @@ class OpenAICompatProvider(LLMProvider):
                 for tc in delta.tool_calls:
                     # 确保 buffer 有足够位置
                     while len(tool_calls_buffer) <= tc.index:
-                        tool_calls_buffer.append({"id": "", "function": {"name": "", "arguments": ""}})
+                        tool_calls_buffer.append(
+                            {"id": "", "function": {"name": "", "arguments": ""}}
+                        )
 
                     if tc.id:
                         tool_calls_buffer[tc.index]["id"] = tc.id
                     if tc.function:
                         if tc.function.name:
-                            tool_calls_buffer[tc.index]["function"]["name"] = tc.function.name
+                            tool_calls_buffer[tc.index]["function"]["name"] = (
+                                tc.function.name
+                            )
                         if tc.function.arguments:
-                            tool_calls_buffer[tc.index]["function"]["arguments"] += tc.function.arguments
+                            tool_calls_buffer[tc.index]["function"]["arguments"] += (
+                                tc.function.arguments
+                            )
 
             # 结束
             if chunk.choices[0].finish_reason:
                 if tool_calls_buffer:
                     yield {"type": "tool_calls", "tool_calls": tool_calls_buffer}
-                break
+                # 继续读取协议结束标记，让 SDK 自然结束底层迭代。
 
         yield {"type": "finish", "content": "".join(content_buffer)}
 
@@ -116,14 +138,17 @@ class OpenAICompatProvider(LLMProvider):
             tool_calls = [
                 {
                     "id": tc.id,
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
                 }
                 for tc in message.tool_calls
             ]
             events.append({"type": "tool_calls", "tool_calls": tool_calls})
 
         if message.content:
-            events.append({"type": "text", "content": message.content})
+            events.append({"type": "text_delta", "content": message.content})
 
         events.append({"type": "finish", "content": message.content or ""})
         return events

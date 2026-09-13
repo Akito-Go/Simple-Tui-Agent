@@ -1,14 +1,12 @@
 """工作区沙箱测试"""
 
 import pytest
-from pathlib import Path
 
 from tui_agent.tools.workspace import (
     get_workspace_root,
     set_workspace_root,
     reset_workspace_root,
     resolve_in_workspace,
-    is_under_workspace,
 )
 from tui_agent.tools.read_file import ReadFileTool
 from tui_agent.tools.write_file import WriteFileTool

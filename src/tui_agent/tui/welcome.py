@@ -1,4 +1,4 @@
-"""启动欢迎页 — 对齐 Claude Code 橙框左右分栏 + Le+O 小猫徽标"""
+"""启动欢迎页 — 对齐 Claude Code 橙框左右分栏 + STA 小猫徽标"""
 
 from __future__ import annotations
 
@@ -11,19 +11,24 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Static
 
-# Q 版小猫（偏小，接近参考图吉祥物体量）
+# 终端半块像素：尖耳、弯弯笑眼、收拢前爪和右侧卷尾。
 WELCOME_ICON = "\n".join(
     [
-        "    ▄▄    ▄▄",
-        "   ████  ████",
-        "  ██▀██████▀██",
-        "  ██ ▄█  █▄ ██",
-        "  ██  ▀██▀  ██",
-        "   ██▄▄▄▄▄▄██",
-        "  ▀▀      ▀▀",
+        "    ▄▄        ▄▄       ",
+        "    ███▄    ▄███       ",
+        "    ████████████       ",
+        "    █▀▄▀████▀▄▀█       ",
+        "    █████▀▀█████       ",
+        "   ▄████████████▄      ",
+        "   ██████████████  ▄▄▄ ",
+        "  ▄████ ▀██▀ ████▄ █ █",
+        "  █████  ██  █████ ▀▄█",
+        "  █████  ██  █████  █ ",
+        "   ▀███▄▄██▄▄███▀▄▄█▀ ",
+        "     ▀▀▀▀▀▀▀▀▀▀▀▀▀▀   ",
     ]
 )
-BRAND_WORDMARK = "Le+O"
+BRAND_WORDMARK = "STA"
 
 WELCOME_TIPS: tuple[str, ...] = (
     "只读工具会自动执行；写入与 Shell 会先征求你的确认。",
@@ -131,7 +136,7 @@ class WelcomeWidget(Vertical):
         margin: 0 0 1 0;
         border: solid #da7756;
         background: #1a1a1a;
-        padding: 1 1;
+        padding: 0 1;
     }
 
     #welcome-body {
@@ -142,7 +147,7 @@ class WelcomeWidget(Vertical):
     #welcome-left {
         width: 3fr;
         height: auto;
-        min-height: 11;
+        min-height: 0;
         padding: 0 2 0 1;
         border-right: solid #da7756;
         content-align: center middle;
@@ -165,13 +170,6 @@ class WelcomeWidget(Vertical):
         height: auto;
     }
 
-    .welcome-greeting {
-        color: #f5f0e8;
-        text-align: center;
-        text-style: bold;
-        margin: 0 0 1 0;
-    }
-
     .welcome-logo {
         color: #da7756;
         text-align: center;
@@ -188,7 +186,7 @@ class WelcomeWidget(Vertical):
     .welcome-path {
         color: #8a857c;
         text-align: center;
-        margin: 1 0 0 0;
+        margin: 0;
     }
 
     .welcome-section-title {
@@ -197,11 +195,25 @@ class WelcomeWidget(Vertical):
         margin: 0 0 1 0;
     }
 
+    WelcomeWidget.compact { padding: 0 1; }
+    WelcomeWidget.compact #welcome-body { layout: vertical; }
+    WelcomeWidget.compact #welcome-left {
+        width: 1fr; min-height: 0; padding: 0; border-right: none;
+    }
+    WelcomeWidget.compact #welcome-right { width: 1fr; padding: 1 0 0 0; }
+    WelcomeWidget.compact .welcome-logo { display: none; }
+    WelcomeWidget.compact .welcome-path { margin: 0; }
+    WelcomeWidget.compact #welcome-right-top { padding: 0; margin: 0; border-bottom: none; }
+    WelcomeWidget.compact .welcome-section-title { margin: 0; }
     .welcome-section-body {
         color: #c8c2b8;
         height: auto;
     }
     """
+
+    def on_resize(self) -> None:
+        # 使用稳定的终端宽度，避免滚动条出现/消失导致布局反复切换。
+        self.set_class(self.screen.size.width < 84, "compact")
 
     def __init__(
         self,
@@ -235,7 +247,6 @@ class WelcomeWidget(Vertical):
 
         with Horizontal(id="welcome-body"):
             with Vertical(id="welcome-left"):
-                yield Static("欢迎回来！", classes="welcome-greeting", markup=False)
                 yield Static(WELCOME_ICON, classes="welcome-logo", markup=False)
                 yield Static(
                     " · ".join(link_bits),
@@ -270,9 +281,3 @@ class WelcomeWidget(Vertical):
         self._tip_index = (self._tip_index + 1) % len(WELCOME_TIPS)
         tip = self.query_one("#welcome-tip", Static)
         tip.update(WELCOME_TIPS[self._tip_index])
-
-
-# 兼容旧导出名
-OJL_ICON = WELCOME_ICON
-OJL_LOGO = WELCOME_ICON
-OJL_WORDMARK = BRAND_WORDMARK

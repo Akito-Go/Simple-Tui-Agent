@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import aclosing
 import json
 from typing import Any, AsyncIterator
 
@@ -66,7 +67,11 @@ def openai_messages_to_anthropic(
                 "tool_use_id": msg.get("tool_call_id") or "",
                 "content": msg.get("content") or "",
             }
-            if out and out[-1]["role"] == "user" and isinstance(out[-1]["content"], list):
+            if (
+                out
+                and out[-1]["role"] == "user"
+                and isinstance(out[-1]["content"], list)
+            ):
                 out[-1]["content"].append(tool_result)
             else:
                 out.append({"role": "user", "content": [tool_result]})
@@ -110,6 +115,9 @@ class AnthropicProvider(LLMProvider):
             max_retries=0,
         )
 
+    async def aclose(self) -> None:
+        await self.client.close()
+
     async def chat(
         self,
         messages: list[dict],
@@ -117,8 +125,9 @@ class AnthropicProvider(LLMProvider):
         stream: bool = True,
     ) -> AsyncIterator[dict]:
         try:
-            async for event in self._do_chat(messages, tools, stream):
-                yield event
+            async with aclosing(self._do_chat(messages, tools, stream)) as events:
+                async for event in events:
+                    yield event
         except asyncio.CancelledError:
             raise
         except TimeoutError:
@@ -145,8 +154,9 @@ class AnthropicProvider(LLMProvider):
             kwargs["tools"] = flatten_tools_to_anthropic(tools)
 
         if stream:
-            async for event in self._handle_stream(kwargs):
-                yield event
+            async with aclosing(self._handle_stream(kwargs)) as events:
+                async for event in events:
+                    yield event
         else:
             response = await with_retry(
                 lambda: self.client.messages.create(**kwargs),
@@ -168,37 +178,42 @@ class AnthropicProvider(LLMProvider):
         current_tool: dict | None = None
         input_json_parts: list[str] = []
 
-        async for event in response:
-            etype = getattr(event, "type", None)
+        try:
+            async for event in response:
+                etype = getattr(event, "type", None)
 
-            if etype == "content_block_start":
-                block = event.content_block
-                if getattr(block, "type", None) == "tool_use":
-                    current_tool = {
-                        "id": block.id,
-                        "function": {"name": block.name, "arguments": ""},
-                    }
-                    input_json_parts = []
+                if etype == "content_block_start":
+                    block = event.content_block
+                    if getattr(block, "type", None) == "tool_use":
+                        current_tool = {
+                            "id": block.id,
+                            "function": {"name": block.name, "arguments": ""},
+                        }
+                        input_json_parts = []
 
-            elif etype == "content_block_delta":
-                delta = event.delta
-                dtype = getattr(delta, "type", None)
-                if dtype == "text_delta":
-                    text = delta.text or ""
-                    content_parts.append(text)
-                    yield {"type": "text_delta", "content": text}
-                elif dtype == "input_json_delta" and current_tool is not None:
-                    input_json_parts.append(delta.partial_json or "")
+                elif etype == "content_block_delta":
+                    delta = event.delta
+                    dtype = getattr(delta, "type", None)
+                    if dtype == "text_delta":
+                        text = delta.text or ""
+                        content_parts.append(text)
+                        yield {"type": "text_delta", "content": text}
+                    elif dtype == "input_json_delta" and current_tool is not None:
+                        input_json_parts.append(delta.partial_json or "")
 
-            elif etype == "content_block_stop":
-                if current_tool is not None:
-                    current_tool["function"]["arguments"] = "".join(input_json_parts) or "{}"
-                    tool_calls.append(current_tool)
-                    current_tool = None
-                    input_json_parts = []
+                elif etype == "content_block_stop":
+                    if current_tool is not None:
+                        current_tool["function"]["arguments"] = (
+                            "".join(input_json_parts) or "{}"
+                        )
+                        tool_calls.append(current_tool)
+                        current_tool = None
+                        input_json_parts = []
 
-            elif etype == "message_stop":
-                break
+                # 自然读完 SSE 响应，避免在 message_stop 处悬挂底层迭代器。
+
+        finally:
+            await response.close()
 
         if tool_calls:
             yield {"type": "tool_calls", "tool_calls": tool_calls}
@@ -219,7 +234,9 @@ class AnthropicProvider(LLMProvider):
                         "id": block.id,
                         "function": {
                             "name": block.name,
-                            "arguments": json.dumps(block.input or {}, ensure_ascii=False),
+                            "arguments": json.dumps(
+                                block.input or {}, ensure_ascii=False
+                            ),
                         },
                     }
                 )

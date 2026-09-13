@@ -4,7 +4,7 @@ from enum import Enum
 
 
 class PermissionLevel(str, Enum):
-    """权限级别 — 与 tools/base.py 保持一致"""
+    """工具权限级别（统一定义）"""
     READ = "read"
     WRITE = "write"
     SHELL = "shell"

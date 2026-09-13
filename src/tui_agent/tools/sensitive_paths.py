@@ -3,15 +3,17 @@
 from pathlib import Path
 
 # 精确匹配的敏感文件名（.env.example 等模板文件除外）
-_SENSITIVE_EXACT_NAMES = frozenset({
-    ".env",
-    "credentials.json",
-    "secrets.json",
-    "id_rsa",
-    "id_dsa",
-    "id_ecdsa",
-    "id_ed25519",
-})
+_SENSITIVE_EXACT_NAMES = frozenset(
+    {
+        ".env",
+        "credentials.json",
+        "secrets.json",
+        "id_rsa",
+        "id_dsa",
+        "id_ecdsa",
+        "id_ed25519",
+    }
+)
 
 # 敏感文件后缀
 _SENSITIVE_SUFFIXES = (".pem", ".key", ".p12", ".pfx")
@@ -24,7 +26,12 @@ def check_sensitive_path(path: Path) -> str | None:
     Returns:
         若为敏感文件返回错误说明，否则返回 None
     """
-    name = path.name
+    resolved = path.resolve()
+    if resolved != path:
+        blocked = check_sensitive_path(resolved)
+        if blocked:
+            return blocked
+    name = path.name.lower()
 
     if name == ".env.example":
         return None

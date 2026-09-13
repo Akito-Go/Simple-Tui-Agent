@@ -9,7 +9,7 @@ from loguru import logger
 
 # 脱敏规则
 SENSITIVE_PATTERNS = [
-    (re.compile(r"sk-[a-zA-Z0-9]+"), "sk-***"),  # API Key
+    (re.compile(r"sk-[a-zA-Z0-9_-]+"), "sk-***"),  # API Key
     (re.compile(r"Bearer\s+[^\s]+"), "Bearer ***"),  # Bearer Token
     (re.compile(r"TUI_AGENT_API_KEY[=:]\s*[^\s,}]+"), "TUI_AGENT_API_KEY=***"),
     (re.compile(r"OPENAI_API_KEY[=:]\s*[^\s,}]+"), "OPENAI_API_KEY=***"),
@@ -30,8 +30,22 @@ _LOG_RECORD_TEXT_FIELDS = frozenset({"content", "result", "arguments"})
 
 def sanitize_log_record(record: dict) -> dict:
     """对单条会话 JSONL 记录中的文本字段脱敏（日志须提交仓库时使用）"""
+    if record.get("type") == "context":
+
+        def scrub(value):
+            if isinstance(value, str):
+                return sanitize_message(value)
+            if isinstance(value, dict):
+                return {k: scrub(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [scrub(v) for v in value]
+            return value
+
+        return scrub(record)
     return {
-        key: sanitize_message(value) if key in _LOG_RECORD_TEXT_FIELDS and isinstance(value, str) else value
+        key: sanitize_message(value)
+        if key in _LOG_RECORD_TEXT_FIELDS and isinstance(value, str)
+        else value
         for key, value in record.items()
     }
 

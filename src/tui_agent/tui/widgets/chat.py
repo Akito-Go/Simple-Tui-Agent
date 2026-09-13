@@ -71,19 +71,41 @@ def _format_tool_result_block(
     lines = result.split("\n")
     summary = " ".join(lines[0].split())[:120] or "(无输出)"
     more = f" · {len(lines)} 行" if len(lines) > 1 or len(result) > 120 else ""
-    if auto and success:
-        mark = ""
-    elif not auto:
-        mark = "⚠ "
-    else:
-        mark = "✗ "
+    mark = "✓ " if success else "✗ "
     return f"{head}\n  ⎿ {mark}{summary}{more}".rstrip()
+
+
+class ToolResultWidget(Static, can_focus=True):
+    """可通过点击或键盘展开的工具结果；外部文本不解析 markup。"""
+
+    BINDINGS = [("enter,space", "toggle", "展开 / 收起")]
+
+    def set_result(self, summary: str, result: str, success: bool) -> None:
+        self._summary = summary
+        self._result = result
+        self._expanded = not success
+        self.set_class(not success, "tool-failed")
+        self._render_result()
+
+    def _render_result(self) -> None:
+        hint = "收起" if self._expanded else "展开"
+        body = f"\n\n{self._result}" if self._expanded else ""
+        self.update(f"{self._summary}\n  {'▾' if self._expanded else '▸'} {hint} · 点击 / Enter{body}")
+
+    def action_toggle(self) -> None:
+        if not hasattr(self, "_result"):
+            return
+        self._expanded = not self._expanded
+        self._render_result()
+
+    def on_click(self) -> None:
+        self.action_toggle()
 
 
 class ChatWidget(VerticalScroll):
     def __init__(self):
         super().__init__(id="chat")
-        self._running_widget: Static | None = None
+        self._running_widget: ToolResultWidget | None = None
         self._running_tool_name: str | None = None
         self._running_tool_args: dict | None = None
         self._running_spinner_idx: int = 0
@@ -212,14 +234,16 @@ class ChatWidget(VerticalScroll):
         self._running_tool_args = arguments
         self._running_spinner_idx = 0
         frame = TOOL_SPINNER_FRAMES[0]
-        self._running_widget = self._static(
+        self._running_widget = ToolResultWidget(
             _format_tool_line(name, arguments, trailer=f"{frame} 执行中…"),
-            classes="tool-running",
+            classes="tool-running", markup=False,
         )
         self.mount(self._running_widget)
         self.scroll_end(animate=False)
 
     def hide_tool_running(self) -> None:
+        self._assistant_busy = False
+        self._refresh_last_assistant_busy()
         if self._running_widget is not None:
             self._running_widget.remove()
             self._running_widget = None
@@ -233,14 +257,16 @@ class ChatWidget(VerticalScroll):
             name, arguments, result, success=success, auto=auto
         )
         if self._running_widget is not None:
-            self._set_text(self._running_widget, text)
+            self._running_widget.set_result(text, result, success)
             self._running_widget.remove_class("tool-running")
             self._running_widget.add_class("tool-result")
             self._running_widget = None
             self._running_tool_name = None
             self._running_tool_args = None
         else:
-            self.mount(self._static(text, classes="tool-result"))
+            widget = ToolResultWidget(classes="tool-result", markup=False)
+            widget.set_result(text, result, success)
+            self.mount(widget)
         self.scroll_end(animate=False)
 
     def add_permission_denied(self, name: str) -> None:

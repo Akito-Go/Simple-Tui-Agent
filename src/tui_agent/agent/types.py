@@ -1,6 +1,6 @@
 """Agent 事件类型定义"""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from contextlib import aclosing
 
 from .manager import SessionManager
 
@@ -59,21 +60,21 @@ async def compress_if_needed(
     如果消息 token 数超过阈值，压缩早期消息为摘要。
 
     压缩策略：
-    - 保留 system prompt + 最近 2 轮完整对话
+    - 优先保留 system prompt + 最近 2 轮完整对话；长任务改按工具批次压缩
     - 中间消息调用 LLM 生成摘要
     - 保证 tool 对不被截断
 
     Returns:
         True 如果执行了压缩
     """
-    messages = session.messages
+    messages = session.build_api_messages()
     estimated = estimate_tokens(messages)
     session.token_usage.prompt_tokens = estimated
     if estimated <= threshold:
         return False
 
     # 找到最近 2 轮对话的起始位置
-    keep_from = len(messages)
+    keep_from = 1
     turns_to_keep = 0
     for i in range(len(messages) - 1, 0, -1):
         if messages[i]["role"] == "user":
@@ -85,20 +86,47 @@ async def compress_if_needed(
     while keep_from < len(messages) and messages[keep_from]["role"] == "tool":
         keep_from += 1
 
-    if keep_from <= 1:
-        return False
+    prefix = messages[:1]
+    if keep_from <= 1 or estimate_tokens(messages[keep_from:]) >= threshold:
+        # assistant 开始新批次时，之前的 tool_call/result 已完整闭合。
+        # 保留最近两个批次和原始用户任务，允许单次长任务继续压缩。
+        batches = [i for i, m in enumerate(messages) if m["role"] == "assistant"]
+        if len(batches) < 3:
+            return False
+        user_boundary = keep_from
+        keep_from = batches[-2]
+        preserved = {
+            i
+            for i in range(max(1, user_boundary), keep_from)
+            if messages[i]["role"] == "user"
+            and not messages[i].get("content", "").startswith("[上下文摘要]")
+        }
+        prefix = [messages[0], *(messages[i] for i in sorted(preserved))]
+        middle = [
+            m for i, m in enumerate(messages[1:keep_from], 1) if i not in preserved
+        ]
+    else:
+        middle = messages[1:keep_from]
+    try:
+        summary = await _generate_summary(llm_provider, middle)
+    except Exception as exc:
+        raise RuntimeError(f"摘要失败，保留原始上下文: {exc}") from exc
+    if not summary.strip():
+        raise ValueError("摘要为空，保留原始上下文")
 
-    middle = messages[1:keep_from]
-    summary = await _generate_summary(llm_provider, middle)
-
-    new_messages = [messages[0]]
-    new_messages.append({
-        "role": "user",
-        "content": f"[上下文摘要] 以下是之前对话的摘要，请基于这些信息继续对话:\n{summary}",
-    })
+    new_messages = list(prefix)
+    new_messages.append(
+        {
+            "role": "user",
+            "content": f"[上下文摘要] 以下是之前对话的摘要，请基于这些信息继续对话:\n{summary}",
+        }
+    )
     new_messages.extend(messages[keep_from:])
 
+    if estimate_tokens(new_messages) >= estimated:
+        raise ValueError("摘要未减少上下文，保留原始历史")
     session.messages = new_messages
+    session._context_dirty = True
     session.token_usage.prompt_tokens = estimate_tokens(new_messages)
     return True
 
@@ -121,12 +149,13 @@ async def _generate_summary(llm_provider, messages: list[dict]) -> str:
     ]
 
     text_parts = []
-    async for event in llm_provider.chat(summary_prompt, stream=True):
-        if event["type"] == "text_delta":
-            text_parts.append(event["content"])
-        elif event["type"] == "error":
-            return f"摘要生成失败: {event['message']}"
-        elif event["type"] == "finish":
-            break
+    async with aclosing(llm_provider.chat(summary_prompt, stream=True)) as events:
+        async for event in events:
+            if event["type"] == "text_delta":
+                text_parts.append(event["content"])
+            elif event["type"] == "error":
+                raise RuntimeError(event["message"])
+            elif event["type"] == "finish":
+                break
 
     return "".join(text_parts)

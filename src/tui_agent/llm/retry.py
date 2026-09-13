@@ -1,12 +1,20 @@
 """超时控制 + 指数退避重试"""
 
 import asyncio
+from openai import APIConnectionError as OpenAIConnectionError
+
+try:
+    from anthropic import APIConnectionError as AnthropicConnectionError
+except ImportError:
+    AnthropicConnectionError = OpenAIConnectionError
 from typing import Callable, Awaitable, TypeVar
 
 T = TypeVar("T")
 
 # 可重试的错误类型
 RETRYABLE_ERRORS = (
+    OpenAIConnectionError,
+    AnthropicConnectionError,
     asyncio.TimeoutError,
     ConnectionError,
     ConnectionRefusedError,

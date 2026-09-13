@@ -1,16 +1,8 @@
 """工具基类 + 权限级别定义 + ToolResult 类型"""
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from enum import Enum
-
-
-class PermissionLevel(str, Enum):
-    """权限级别"""
-
-    READ = "read"  # 只读操作，自动执行
-    WRITE = "write"  # 写入操作，需用户确认
-    SHELL = "shell"  # Shell 命令，需用户确认
+from dataclasses import dataclass
+from ..permissions.policy import PermissionLevel as PermissionLevel
 
 
 @dataclass
@@ -35,7 +27,7 @@ class ToolBase(ABC):
 
     name: str = ""
     description: str = ""
-    parameters: dict = field(default_factory=dict)  # JSON Schema 格式
+    parameters: dict = {}  # JSON Schema 格式
     permission_level: PermissionLevel = PermissionLevel.READ
 
     @abstractmethod

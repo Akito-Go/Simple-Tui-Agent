@@ -16,7 +16,7 @@
 | **权限分级** | 只读自动执行，写入/Shell 需用户确认 |
 | **OpenAI 兼容 API** | 通过 openai SDK 兼容 OpenAI 协议接入 |
 | **API Key 保护** | 仅环境变量，日志脱敏 |
-| **工作区沙箱** | 文件与 Shell 操作限制在项目根目录（`tools/workspace.py`） |
+| **工作区沙箱** | 文件路径与 Shell 工作目录边界校验；本机命令不受系统沙箱隔离 |
 
 ### 1.3 技术栈
 
@@ -173,7 +173,7 @@ tui-agent/
 ├── docs/                          # 设计文档
 │   └── architecture.md            # 本文档
 ├── openspec/                      # OpenSpec（本地，不推远端）
-├── .github/                       # CI / Copilot 脚手架（本地，不推远端）
+├── .github/                       # GitHub Actions 静态检查与跨平台测试
 ├── src/
 │   └── tui_agent/                 # 主包
 │       ├── __init__.py
@@ -182,7 +182,6 @@ tui-agent/
 │       ├── agent/
 │       │   ├── __init__.py
 │       │   ├── loop.py            # Agent Loop 核心 (自实现)
-│       │   ├── context.py         # 上下文组装
 │       │   └── types.py           # 核心类型定义
 │       ├── tools/
 │       │   ├── __init__.py
@@ -323,7 +322,7 @@ class ToolBase:
 
 ### 4.2.1 工作区沙箱 (`tools/workspace.py`)
 
-**设计目标**：在不引入 Docker 的前提下，将文件读写与 Shell 执行限制在**项目启动目录**内。
+**设计目标**：将文件工具的路径及 Shell 工作目录限制在**项目启动目录**内；Shell 命令本身仍拥有当前用户的系统权限。
 
 ```
 TUI 启动 (_do_init_agent)
@@ -342,7 +341,7 @@ shell_exec
 
 **与配置的关系**：沙箱**不读取**任何配置项，仅依赖进程 cwd；`.env` / YAML 配置行为不变。
 
-**已知限制**：用户确认后 Shell 仍可在工作区内执行任意命令；未做命令黑名单或容器隔离。
+**已知限制**：用户确认后本机 Shell 可访问工作区外资源。高危命令黑名单是辅助检查，不能替代容器或操作系统隔离。
 
 ### 4.3 权限控制 (`permissions/`)
 
@@ -416,8 +415,8 @@ class OpenAICompatProvider(LLMProvider):
 
 **JSONL 增量持久化**（`storage.py`）：
 
-- 路径：`.tui-agent/logs/session_{timestamp}.jsonl`
-- 首次 `w` 写入，后续 `a` 追加；`_saved_message_count = len(messages)` 避免重复
+- 路径：`.tui-agent/logs/session_{uuid}.jsonl`
+- 原始历史独立追加，保存游标跟踪 `_transcript`；压缩检查点独立持久化，失败不推进游标
 - 兼容旧格式（`tool_call` 在 `assistant` 之前）
 
 **会话恢复**（`loader.py`）：
@@ -445,10 +444,10 @@ class OpenAICompatProvider(LLMProvider):
 **优先级**：
 
 ```
-.env 环境变量  >  项目级 .tui-agent.yaml  >  用户级 ~/.tui-agent.yaml  >  config/default.yaml
+.env 环境变量  >  项目级 .tui-agent.yaml  >  用户级 ~/.tui-agent.yaml  >  配置模型内置默认值
 ```
 
-**默认配置**（`config/default.yaml`）：
+**配置示例**（`config/default.yaml`，内置默认值统一在 `src/tui_agent/config/schema.py` 定义）：
 
 ```yaml
 max_turns: 50
@@ -474,28 +473,16 @@ llm:
 
 ### 4.7 TUI 界面 (`tui/`)
 
-**全屏对话流布局**：
+**全屏对话流布局**：上方为可滚动对话流，下方依次为确认槽、输入框、状态相关快捷提示和状态栏。状态栏优先显示状态与模型，宽屏补充轮次及 Provider。
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│ ╭ Le+O · tui-agent v0.1.0 ───────┬─ 入门提示 / 最近活动 ───╮ │
-│ │ 欢迎回来 + Q 版小猫块字        │  Tips · /sessions 提示  │ │
-│ ╰────────────────────────────────┴─────────────────────────╯ │
-│  👤 帮我创建一个 Python 俄罗斯方块游戏                        │  ← Body
-│  🤖 好的，我先看看项目结构...                                 │
-│  ● list_dir(path=.)                                           │
-│    ⎿ src/ tests/ ...                                          │
-│  ╔ ⚠ 需要确认 ════════════════════════════╗                   │
-│  ║ ❯ 1. 确认执行 / 2. 本会话全允 / 3. 拒绝║                   │
-│  ╚════════════════════════════════════════╝                   │
-├──────────────────────────────────────────────────────────────┤
-│  /help · 写入/Shell 需确认 · Y/A/N                            │  ← Footer
-│  > _                                                         │
-│  tui-agent · openai · gpt-4o · 轮次 3/50    运行中            │  ← Status
-└──────────────────────────────────────────────────────────────┘
-```
+- `MainScreen` 在 resize 时切换 `narrow` / `short` 样式，缩减边距、确认预览高度并更新快捷提示。短窗口保留三个确认选项。
+- `WelcomeWidget` 根据终端宽度切换左右双栏 / 上下紧凑布局（不足 84 列时紧凑显示，避免滚动条触发布局反复切换）；紧凑模式隐藏大字标，保留模型、路径、入门提示和最近活动。
+- `HeaderWidget` 使用 Rich Text 显示状态色，按可用列宽隐藏次要字段并截断超长内容，模型名不解析 markup。
+- `ToolResultWidget` 保留在原工具调用位置；点击或 Enter / 空格展开、收起返回内容。失败默认展开并使用错误色；显示区域最多 16 行，可独立滚动。
+- 展开只影响 UI，不触发工具重跑、不读取结果路径，也不改变模型上下文。文件中更长的输出仍由 `read_file` 分段读取。
+- 停止任务时移除工具卡片的运行态，同时复位助手 spinner。
 
-
+操作说明和 Textual 导出的示例快照见 [UI 使用说明](ui-guide.md)。
 
 **内置命令**：
 
@@ -562,7 +549,7 @@ llm:
 
 ### 5.2 本地回归
 
-公开仓不包含 `.github/`；请在本地执行：
+`.github/workflows/tests.yml` 提供跨平台 CI；本地执行：
 
 ```bash
 pip install -e ".[dev]"
@@ -608,7 +595,7 @@ def mock_llm_provider():
 | AI 协作记录 | `.ai_history/logs/` | 每轮对话摘要 |
 | TUI 产品日志 | `.tui-agent/logs/` | JSONL 格式对话记录 |
 | 运行截图 | `deliverables/`（本地） | 小游戏实现/运行截图，不纳入公开仓 |
-| OpenSpec / CI 脚手架 | `openspec/`、`.github/`（本地） | 规格与 Actions，不纳入公开仓 |
+| OpenSpec / CI 脚手架 | `openspec/`（本地）、`.github/`（版本管理） | 本地规格与公开 CI |
 | 设计文档 | `docs/architecture.md` | 本文档 |
 
 ---
@@ -624,4 +611,6 @@ def mock_llm_provider():
 - [x] 7 个工具完整实现
 - [x] 6 个内置命令完整实现（含 `/stop`）
 - [x] 权限分级正确（只读自动，写入/Shell 确认）
-- [x] 工作区沙箱（文件/Shell 限制在项目根内）
+- [x] 文件工具路径边界与 Shell 工作目录校验（无系统隔离）
+
+运行时执行、保存、压缩及工具资源边界的最新细节见 [Runtime 改造说明](runtime-improvements.md)。

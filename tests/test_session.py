@@ -1,7 +1,6 @@
 """会话管理测试 — 消息累积、上下文组装、JSONL 持久化"""
 
 import json
-import pytest
 
 from tui_agent.session.manager import SessionManager
 from tui_agent.session.storage import save_session

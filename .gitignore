@@ -17,6 +17,7 @@ build/
 
 # 运行时产物
 .pytest_cache/
+.ruff_cache/
 .DS_Store
 
 # 运行时日志与本地会话
@@ -28,7 +29,6 @@ deliverables/
 
 # 本地规格与脚手架（整目录不推远端）
 openspec/
-.github/
 
 # 考核与评审文档（本地）
 docs/ai-audit-report.md

@@ -1,6 +1,7 @@
 """会话加载 — 从 JSONL 恢复历史会话"""
 
 import json
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 
@@ -23,7 +24,9 @@ def list_sessions() -> list[dict]:
     """扫描 .tui-agent/logs/ 返回可恢复的会话列表（仅 session_*.jsonl）"""
     log_dir = get_log_dir()
     sessions = []
-    for filepath in sorted(log_dir.glob("session_*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
+    for filepath in sorted(
+        log_dir.glob("session_*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True
+    ):
         try:
             meta: dict = {}
             msg_count = 0
@@ -33,24 +36,33 @@ def list_sessions() -> list[dict]:
                     line = line.strip()
                     if not line:
                         continue
-                    record = json.loads(line)
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
                     if record.get("type") == "meta":
                         meta = record
                     elif record.get("type") == "user":
                         last_user = record.get("content", "")
                         msg_count += 1
-                    elif record.get("type") in {"assistant", "tool_call", "tool_result"}:
+                    elif record.get("type") in {
+                        "assistant",
+                        "tool_call",
+                        "tool_result",
+                    }:
                         msg_count += 1
             mtime = filepath.stat().st_mtime
-            sessions.append({
-                "session_id": filepath.stem,
-                "filepath": str(filepath),
-                "model": meta.get("model", "unknown"),
-                "turn_count": meta.get("turn_count", 0),
-                "msg_count": msg_count,
-                "last_active": _format_mtime(mtime),
-                "preview": _preview_text(last_user),
-            })
+            sessions.append(
+                {
+                    "session_id": filepath.stem,
+                    "filepath": str(filepath),
+                    "model": meta.get("model", "unknown"),
+                    "turn_count": meta.get("turn_count", 0),
+                    "msg_count": msg_count,
+                    "last_active": _format_mtime(mtime),
+                    "preview": _preview_text(last_user),
+                }
+            )
         except (json.JSONDecodeError, OSError):
             continue
     return sessions
@@ -85,11 +97,13 @@ def _sanitize_messages(messages: list[dict]) -> list[dict]:
                 call_counter += 1
                 tool_call_id = (tc.get("id") or "").strip() or f"call_{call_counter}"
                 valid_ids.append(tool_call_id)
-                tool_calls.append({
-                    "id": tool_call_id,
-                    "type": "function",
-                    "function": tc["function"],
-                })
+                tool_calls.append(
+                    {
+                        "id": tool_call_id,
+                        "type": "function",
+                        "function": tc["function"],
+                    }
+                )
             index += 1
 
             tool_msgs = []
@@ -97,29 +111,35 @@ def _sanitize_messages(messages: list[dict]) -> list[dict]:
                 tool_msg = messages[index]
                 tool_call_id = (tool_msg.get("tool_call_id") or "").strip()
                 if tool_call_id in valid_ids:
-                    tool_msgs.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call_id,
-                        "name": tool_msg.get("name", ""),
-                        "content": tool_msg.get("content", ""),
-                    })
+                    tool_msgs.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call_id,
+                            "name": tool_msg.get("name", ""),
+                            "content": tool_msg.get("content", ""),
+                        }
+                    )
                 index += 1
 
             responded_ids = {t["tool_call_id"] for t in tool_msgs}
             matched_calls = [tc for tc in tool_calls if tc["id"] in responded_ids]
 
             if matched_calls and tool_msgs:
-                sanitized.append({
-                    "role": "assistant",
-                    "content": msg.get("content") or "",
-                    "tool_calls": matched_calls,
-                })
+                sanitized.append(
+                    {
+                        "role": "assistant",
+                        "content": msg.get("content") or "",
+                        "tool_calls": matched_calls,
+                    }
+                )
                 sanitized.extend(tool_msgs)
             elif msg.get("content"):
-                sanitized.append({
-                    "role": "assistant",
-                    "content": msg["content"],
-                })
+                sanitized.append(
+                    {
+                        "role": "assistant",
+                        "content": msg["content"],
+                    }
+                )
             continue
 
         if msg.get("role") == "tool":
@@ -218,7 +238,11 @@ def load_session(filepath: str, model: str = "unknown") -> SessionManager | None
     restored_turn_count = 0
 
     def flush_tool_calls(content: str = "") -> None:
-        nonlocal pending_tool_calls, call_counter, expected_tool_ids, pending_assistant_content
+        nonlocal \
+            pending_tool_calls, \
+            call_counter, \
+            expected_tool_ids, \
+            pending_assistant_content
         if not pending_tool_calls:
             return
         merged_content = _merge_assistant_content(pending_assistant_content, content)
@@ -227,10 +251,12 @@ def load_session(filepath: str, model: str = "unknown") -> SessionManager | None
         for tc in pending_tool_calls:
             call_counter += 1
             tool_call_id = (tc.get("id") or "").strip() or f"call_{call_counter}"
-            normalized_calls.append({
-                "id": tool_call_id,
-                "function": tc["function"],
-            })
+            normalized_calls.append(
+                {
+                    "id": tool_call_id,
+                    "function": tc["function"],
+                }
+            )
             expected_tool_ids.append(tool_call_id)
         session.add_assistant_message(merged_content, normalized_calls)
         pending_tool_calls = []
@@ -250,6 +276,17 @@ def load_session(filepath: str, model: str = "unknown") -> SessionManager | None
 
             rtype = record.get("type", "")
 
+            if rtype == "context":
+                flush_tool_calls()
+                flush_pending_assistant_content()
+                snapshot = record.get("messages")
+                if isinstance(snapshot, list) and all(
+                    isinstance(m, dict) and "role" in m for m in snapshot
+                ):
+                    session.messages = deepcopy(snapshot)
+                expected_tool_ids = []
+                continue
+
             if rtype == "meta":
                 restored_model = record.get("model", model)
                 restored_turn_count = record.get("turn_count", 0)
@@ -263,13 +300,15 @@ def load_session(filepath: str, model: str = "unknown") -> SessionManager | None
 
             elif rtype == "tool_call":
                 call_counter += 1
-                pending_tool_calls.append({
-                    "id": _assign_tool_call_id(record, call_counter),
-                    "function": {
-                        "name": record.get("name", ""),
-                        "arguments": record.get("arguments", "{}"),
-                    },
-                })
+                pending_tool_calls.append(
+                    {
+                        "id": _assign_tool_call_id(record, call_counter),
+                        "function": {
+                            "name": record.get("name", ""),
+                            "arguments": record.get("arguments", "{}"),
+                        },
+                    }
+                )
 
             elif rtype == "assistant":
                 content = record.get("content", "")
@@ -304,13 +343,17 @@ def load_session(filepath: str, model: str = "unknown") -> SessionManager | None
     session.messages = _normalize_message_sequence(session.messages)
 
     if not session.messages or session.messages[0].get("role") != "system":
-        session.messages.insert(0, {
-            "role": "system",
-            "content": SessionManager.build_system_prompt(model),
-        })
+        session.messages.insert(
+            0,
+            {
+                "role": "system",
+                "content": SessionManager.build_system_prompt(model),
+            },
+        )
     else:
         session.messages[0]["content"] = SessionManager.build_system_prompt(model)
 
     # 已完整加载历史，后续 save 应追加而非覆盖
-    session._saved_message_count = len(session.messages)
+    session._saved_message_count = len(session._transcript)
+    session._saved_metadata = (session.model, session.turn_count)
     return session

@@ -10,8 +10,7 @@ from tui_agent.tui.widgets.chat import (
     _normalize_display_text,
 )
 from tui_agent.tui.welcome import (
-    OJL_ICON,
-    OJL_LOGO,
+    WELCOME_ICON,
     WELCOME_TIPS,
     WelcomeWidget,
     build_welcome_banner,
@@ -56,10 +55,9 @@ class TestChatHelpers:
 
 class TestWelcomeBanner:
     def test_welcome_icon_uses_block_texture(self):
-        # 「Le+O」欢迎吉祥物：Q 版小猫块字（█ ▄ ▀）
-        assert "█" in OJL_ICON and "▄" in OJL_ICON and "▀" in OJL_ICON
-        assert OJL_LOGO == OJL_ICON
-        assert len(OJL_ICON.splitlines()) >= 6
+        # 「STA」欢迎吉祥物：Q 版小猫块字（█ ▄ ▀）
+        assert "█" in WELCOME_ICON and "▄" in WELCOME_ICON and "▀" in WELCOME_ICON
+        assert len(WELCOME_ICON.splitlines()) >= 6
 
     def test_banner_includes_version_and_tip(self):
         banner = build_welcome_banner(
@@ -71,7 +69,7 @@ class TestWelcomeBanner:
             tip_index=0,
             app_version="0.1.0",
         )
-        assert "Le+O" in banner
+        assert "STA" in banner
         assert "tui-agent v0.1.0" in banner
         assert "gpt-4o-mini" in banner
         assert "openai_compat" in banner
@@ -104,7 +102,7 @@ class TestWelcomeBanner:
             chat.mount_welcome(widget)
             await pilot.pause()
             assert widget.border_title
-            assert "Le+O" in widget.border_title
+            assert "STA" in widget.border_title
             assert "tui-agent" in widget.border_title
             assert app.query_one("#welcome-left")
             assert app.query_one("#welcome-right")
@@ -213,5 +211,5 @@ class TestChatWidgetOrder:
         async with app.run_test() as pilot:
             chat = app.query_one(ChatWidget)
             await pilot.pause()
-            chat.add_welcome("OJL")
-            assert chat.child_labels()[0] == "OJL"
+            chat.add_welcome("STA")
+            assert chat.child_labels()[0] == "STA"

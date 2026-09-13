@@ -2,7 +2,7 @@
 
 import pytest
 
-from tests.conftest import MockLLMProvider, MockLLMResponse
+from tests.conftest import MockLLMResponse
 
 
 class TestMockLLMProvider:

@@ -1,7 +1,7 @@
 """权限确认组件 — Claude Code 双线框 + 中文选项"""
 
 from textual.widgets import Static
-from textual.containers import Vertical
+from textual.containers import Vertical, VerticalScroll
 
 
 class ConfirmWidget(Vertical, can_focus=True):
@@ -16,24 +16,27 @@ class ConfirmWidget(Vertical, can_focus=True):
     def __init__(self, tool_name: str, summary: str):
         super().__init__(classes="confirm-inline")
         self._selected_idx: int = 0
+        self._submitted = False
         self._tool_name = tool_name
         self._summary = summary
         self._option_widgets: list[Static] = []
 
     def on_mount(self) -> None:
         # 紧凑两行标题，避免确认框过高贴死底部
-        summary = self._summary.replace("\n", " ").strip()
-        if len(summary) > 96:
-            summary = summary[:93] + "..."
-        self.mount(Static(
-            f"⚠ 需要确认 · {self._tool_name}\n  {summary}",
-            classes="permission-msg",
-            markup=False,
-        ))
-        self.mount(Static(
-            " ↑↓ · Enter · Y 同意 · A 本会话全允 · N 拒绝",
-            classes="confirm-hint",
-        ))
+        summary = self._summary.strip()
+        self.mount(Static(f"⚠ 需要确认 · {self._tool_name}", markup=False))
+        self.mount(
+            VerticalScroll(
+                Static(summary, markup=False),
+                classes="confirm-preview",
+            )
+        )
+        self.mount(
+            Static(
+                " ↑↓ · Enter · Y 同意 · A 本会话全允 · N 拒绝",
+                classes="confirm-hint",
+            )
+        )
         for i, (label, _) in enumerate(self.OPTIONS):
             w = Static(label, markup=False)
             self._option_widgets.append(w)
@@ -55,6 +58,9 @@ class ConfirmWidget(Vertical, can_focus=True):
                 widget.update(f"   {n}. {label}")
 
     def _submit(self, action: str) -> None:
+        if self._submitted:
+            return
+        self._submitted = True
         if action == "allow_session":
             self.app.on_confirm(True, allow_session=True)
         elif action == "confirm":

@@ -1,6 +1,5 @@
 """程序入口 — python -m tui_agent"""
 
-import sys
 
 
 def main():
