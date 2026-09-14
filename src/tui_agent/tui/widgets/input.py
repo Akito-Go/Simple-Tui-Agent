@@ -25,6 +25,9 @@ class InputWidget(Input):
         app = self.app
         candidates = list(app.completion_candidates())
         prefix = self.value.rsplit(" ", 1)[-1]
+        if not prefix:
+            self.focus()
+            return
         matches = sorted(item for item in candidates if item.startswith(prefix))
         if matches:
             self.value = self.value[: -len(prefix)] + matches[0]
@@ -47,6 +50,8 @@ class InputWidget(Input):
 
     def _matching_candidates(self) -> list[str]:
         prefix = self.value.rsplit(" ", 1)[-1]
+        if not prefix:
+            return []
         return [item for item in self.app.completion_candidates() if item.startswith(prefix)]
 
     def _show_candidates(self, matches: list[str]) -> None:
@@ -55,4 +60,4 @@ class InputWidget(Input):
         except Exception:
             return
         popup.update("  " + "  ·  ".join(matches[:8]) if matches else "")
-        popup.display = bool(matches and (self.value.startswith("/") or " " not in self.value))
+        popup.display = bool(self.value and matches and (self.value.startswith("/") or " " not in self.value))

@@ -50,7 +50,7 @@ def get_app_version() -> str:
     try:
         return version("tui-agent")
     except PackageNotFoundError:
-        return "0.1.0"
+        return "0.1.1"
 
 
 def pick_tip_index(*, seed: str | None = None) -> int:
@@ -203,6 +203,9 @@ class WelcomeWidget(Vertical):
     }
 
     WelcomeWidget.compact { padding: 0 1; }
+    WelcomeWidget.dismissed { border: none; padding: 0; margin: 0 0 1 0; }
+    WelcomeWidget.dismissed #welcome-body { display: none; }
+    .welcome-summary { height: 1; color: #8a857c; }
     WelcomeWidget.compact #welcome-body { layout: vertical; }
     WelcomeWidget.compact #welcome-left {
         width: 1fr; min-height: 0; padding: 0; border-right: none;
@@ -282,6 +285,7 @@ class WelcomeWidget(Vertical):
                     )
 
     def on_mount(self) -> None:
+        self.set_class(self.screen.size.width < 84, "compact")
         if self._rotate_seconds > 0 and len(WELCOME_TIPS) > 1:
             self.set_interval(self._rotate_seconds, self._rotate_tip)
 
@@ -289,3 +293,10 @@ class WelcomeWidget(Vertical):
         self._tip_index = (self._tip_index + 1) % len(WELCOME_TIPS)
         tip = self.query_one("#welcome-tip", Static)
         tip.update(WELCOME_TIPS[self._tip_index])
+
+    def collapse(self) -> None:
+        if self.has_class("dismissed"):
+            return
+        self.add_class("dismissed")
+        self.border_title = ""
+        self.mount(Static(f"STA · {self._model} · {_short_cwd(self._cwd)}", classes="welcome-summary", markup=False))

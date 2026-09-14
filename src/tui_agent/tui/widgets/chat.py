@@ -9,8 +9,8 @@ from textual.containers import VerticalScroll
 STATUS_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 TOOL_SPINNER_FRAMES = STATUS_SPINNER_FRAMES
 
-ASSISTANT_ICON = "🤖"
-USER_ICON = "👤"
+ASSISTANT_ICON = "●"
+USER_ICON = "❯"
 
 
 def _format_tool_args(arguments: dict, max_len: int = 80) -> str:
@@ -52,7 +52,8 @@ def _extract_assistant_body(text: str) -> str:
 
 
 def _format_tool_line(name: str, arguments: dict, *, trailer: str = "") -> str:
-    args_str = _format_tool_args(arguments)
+    target = next((key for key in ("path", "command", "pattern") if key in arguments), None)
+    args_str = _format_tool_args({target: arguments[target]} if target else arguments)
     base = f"● {name}({args_str})" if args_str else f"● {name}"
     if trailer:
         return f"{base}  {trailer}"
@@ -65,14 +66,12 @@ def _format_tool_result_block(
     result: str,
     *,
     success: bool,
-    auto: bool,
 ) -> str:
     head = _format_tool_line(name, arguments)
     lines = result.split("\n")
-    summary = " ".join(lines[0].split())[:120] or "(无输出)"
     more = f" · {len(lines)} 行" if len(lines) > 1 or len(result) > 120 else ""
     mark = "✓ " if success else "✗ "
-    return f"{head}\n  ⎿ {mark}{summary}{more}".rstrip()
+    return f"{head}  {mark.strip()}{more}".rstrip()
 
 
 class ToolResultWidget(Static, can_focus=True):
@@ -90,7 +89,7 @@ class ToolResultWidget(Static, can_focus=True):
     def _render_result(self) -> None:
         hint = "收起" if self._expanded else "展开"
         body = f"\n\n{self._result}" if self._expanded else ""
-        self.update(f"{self._summary}\n  {'▾' if self._expanded else '▸'} {hint} · 点击 / Enter{body}")
+        self.update(f"{self._summary}  {'▾' if self._expanded else '▸'} {hint}{body}")
 
     def action_toggle(self) -> None:
         if not hasattr(self, "_result"):
@@ -215,6 +214,10 @@ class ChatWidget(VerticalScroll):
         return full_text
 
     def add_user_message(self, content: str) -> None:
+        from ..welcome import WelcomeWidget
+
+        for welcome in self.query(WelcomeWidget):
+            welcome.collapse()
         self.mount(self._static(f"{USER_ICON} {content}", classes="user-msg"))
         self.scroll_end(animate=False)
 
@@ -250,11 +253,11 @@ class ChatWidget(VerticalScroll):
         self._running_tool_name = None
         self._running_tool_args = None
 
-    def add_tool_result(self, name: str, arguments: dict, auto: bool, result: str, success: bool) -> None:
+    def add_tool_result(self, name: str, arguments: dict, result: str, success: bool) -> None:
         self._assistant_busy = False
         self._refresh_last_assistant_busy()
         text = _format_tool_result_block(
-            name, arguments, result, success=success, auto=auto
+            name, arguments, result, success=success
         )
         if self._running_widget is not None:
             self._running_widget.set_result(text, result, success)
@@ -279,7 +282,20 @@ class ChatWidget(VerticalScroll):
         self.scroll_end(animate=False)
 
     def add_system_message(self, content: str) -> None:
-        self.mount(self._static(f"📢 {content}", classes="system-msg"))
+        self.mount(self._static(content, classes="system-msg"))
+        self.scroll_end(animate=False)
+
+    def add_diff_report(self, checkpoint, path: str = "") -> None:
+        from .diff import DiffWidget
+        from ...tools.output import truncate
+
+        report = checkpoint.change_report(path=path)
+        relative = str(checkpoint.file_path(path).relative_to(checkpoint.root)) if path else ""
+        changes = [item for item in checkpoint.file_changes() if not relative or item["path"] == relative]
+        self.add_system_message(report)
+        for item in changes:
+            title = f"{item['kind']} {item['path']}  +{item['added']} / -{item['removed']}"
+            self.mount(DiffWidget(title, truncate(item["diff"], 12000)))
         self.scroll_end(animate=False)
 
     def add_welcome(self, content: str) -> None:

@@ -58,8 +58,10 @@ def glob_matches(relative: str, pattern: str) -> bool:
     return match(0, 0)
 
 
-def search(root: Path, mode: str, pattern: str, path: Path) -> dict:
-    regex = re.compile(pattern) if mode == "grep" else None
+def search(root: Path, mode: str, pattern: str, path: Path, options: dict | None = None) -> dict:
+    options = options or {}
+    regex = re.compile(re.escape(pattern) if options.get("literal") else pattern,
+                       re.IGNORECASE if options.get("ignore_case") else 0) if mode == "grep" else None
     results = []
     size = 0
     limited = False
@@ -76,6 +78,10 @@ def search(root: Path, mode: str, pattern: str, path: Path) -> dict:
                 continue
             matches = [str(candidate)]
         else:
+            file_glob = options.get("glob", "")
+            relative = candidate.relative_to(root).as_posix()
+            if file_glob and not glob_matches(relative if "/" in file_glob else candidate.name, file_glob):
+                continue
             try:
                 if target.stat().st_size > 2_000_000:
                     continue
@@ -108,9 +114,9 @@ def search(root: Path, mode: str, pattern: str, path: Path) -> dict:
 
 
 if __name__ == "__main__":
-    root, mode, pattern, path = json.loads(sys.stdin.read())
+    root, mode, pattern, path, options = json.loads(sys.stdin.read())
     try:
-        result = search(Path(root), mode, pattern, Path(path))
+        result = search(Path(root), mode, pattern, Path(path), options)
     except (OSError, ValueError, re.error) as exc:
         result = {"success": False, "output": "", "error": f"搜索失败: {exc}"}
     print(json.dumps(result, ensure_ascii=False))

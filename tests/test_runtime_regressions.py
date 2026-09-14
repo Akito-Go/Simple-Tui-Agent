@@ -656,7 +656,6 @@ async def test_provider_switch_failure_preserves_all_state(monkeypatch, command)
     handler = getattr(app, f"_handle_{command}_command")
     handler(
         MagicMock(),
-        MagicMock(),
         "claude-sonnet-4-5" if command == "model" else "anthropic",
     )
     assert app.config.model_dump() == before
@@ -678,7 +677,7 @@ async def test_model_switch_commits_and_closes_old_client(monkeypatch):
     app._update_header = MagicMock()
     monkeypatch.setattr("tui_agent.tui.app.get_api_key", lambda _: "test-key")
     monkeypatch.setattr("tui_agent.tui.app.create_llm_provider", lambda *_: new)
-    app._handle_model_command(MagicMock(), MagicMock(), new.model)
+    app._handle_model_command(MagicMock(), new.model)
     await asyncio.gather(*app._provider_cleanup_tasks)
     assert app.config.llm.model == app.session.model == new.model
     assert app.config.llm.provider == "anthropic"
@@ -769,3 +768,22 @@ async def test_app_shutdown_waits_for_task_before_closing_provider():
     await app.on_unmount()
     assert app._agent_task.done()
     assert order == ["task closed", "client closed"]
+
+
+async def test_llm_error_emits_one_message_and_preserves_partial_response(runtime):
+    loop, provider, _ = runtime
+    calls = []
+    async def chat(*args, **kwargs):
+        calls.append(True)
+        yield {'type': 'text_delta', 'content': 'partial answer'}
+        yield {'type': 'error', 'message': 'LLM 请求失败: Our servers are currently overloaded. Please try again later.'}
+    provider.chat = chat
+    events = [event async for event in loop.run('test')]
+    errors = [event for event in events if isinstance(event, AgentError)]
+    assert len(errors) == 1
+    assert errors[0].message.count('LLM 请求失败:') == 1
+    assert '暂时过载' in errors[0].message
+    assert [e.message for e in events if isinstance(e, AgentFinished)] == ['']
+    assert loop.checkpoint.data['status'] == 'failed'
+    assert 'partial answer' in str(loop.session.build_messages())
+    assert len(calls) == 1

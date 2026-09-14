@@ -14,10 +14,13 @@ class GrepSearchTool(ToolBase):
         "properties": {
             "pattern": {"type": "string", "description": "正则表达式"},
             "path": {"type": "string", "description": "搜索文件或目录，默认工作区"},
+            "glob": {"type": "string", "description": "文件筛选，如 *.py 或 src/**/*.py（相对工作区）"},
+            "ignore_case": {"type": "boolean", "description": "忽略大小写，默认 false"},
+            "literal": {"type": "boolean", "description": "将 pattern 作为普通文本，默认 false"},
         },
         "required": ["pattern"],
     }
     permission_level = PermissionLevel.READ
 
-    async def execute(self, pattern: str, path: str = ".") -> ToolResult:
-        return await run_search("grep", pattern, path)
+    async def execute(self, pattern: str, path: str = ".", glob: str = "", ignore_case: bool = False, literal: bool = False) -> ToolResult:
+        return await run_search("grep", pattern, path, options=dict(glob=glob, ignore_case=ignore_case, literal=literal))

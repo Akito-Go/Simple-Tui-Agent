@@ -16,7 +16,7 @@ class ListDirTool(ToolBase):
                 "description": "要列出的目录路径，默认为当前目录",
             }
         },
-        "required": ["path"],
+        "required": [],
     }
     permission_level = PermissionLevel.READ
 

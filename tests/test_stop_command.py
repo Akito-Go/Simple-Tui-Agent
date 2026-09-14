@@ -47,8 +47,8 @@ class TestStopCommand:
             await pilot.pause()
 
             # 模拟：已完成 2 个工具，然后 stop
-            chat.add_tool_result("list_dir", {"path": "."}, auto=True, result="src/", success=True)
-            chat.add_tool_result("read_file", {"path": "a.py"}, auto=True, result="print(1)", success=True)
+            chat.add_tool_result("list_dir", {"path": "."}, result="src/", success=True)
+            chat.add_tool_result("read_file", {"path": "a.py"}, result="print(1)", success=True)
             chat.add_system_message("⏹ 任务已终止")
 
             labels = chat.child_labels()

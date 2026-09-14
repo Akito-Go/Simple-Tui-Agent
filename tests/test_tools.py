@@ -179,3 +179,20 @@ class TestToolRegistry:
         result = await registry.execute("unknown_tool", {})
         assert not result.success
         assert "未知工具" in result.error
+
+
+async def test_grep_filters_literal_case_and_nested_paths(temp_workspace):
+    from pathlib import Path
+    root = Path(temp_workspace)
+    (root / 'nested').mkdir(exist_ok=True)
+    (root / 'nested' / 'chosen.py').write_text('A[B]\naXb\n')
+    (root / 'other.txt').write_text('A[B]\n')
+    tool = GrepSearchTool()
+    result = await tool.execute('a[b]', glob='*.py', literal=True, ignore_case=True)
+    assert result.success
+    assert 'chosen.py:1:' in result.output
+    assert 'other.txt' not in result.output and 'aXb' not in result.output
+    result = await tool.execute('A[B]', glob='nested/**/*.py', literal=True)
+    assert result.success and 'chosen.py' in result.output
+    result = await tool.execute('a[b]', glob='*.py', literal=True)
+    assert 'chosen.py' not in result.output

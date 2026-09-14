@@ -2,6 +2,7 @@
 
 from textual.widgets import Static
 from textual.containers import Vertical, VerticalScroll
+from .diff import color_diff
 
 
 class ConfirmWidget(Vertical, can_focus=True):
@@ -27,7 +28,7 @@ class ConfirmWidget(Vertical, can_focus=True):
         self.mount(Static(f"⚠ 需要确认 · {self._tool_name}", markup=False))
         self.mount(
             VerticalScroll(
-                Static(summary, markup=False),
+                Static(color_diff(summary) if self._tool_name in {"write_file", "edit_file"} else summary, markup=False),
                 classes="confirm-preview",
             )
         )

@@ -495,7 +495,7 @@ llm:
 | `/model` | 查看/切换模型（跨 Provider 重建客户端） |
 | `/provider` | 查看/切换 `openai_compat` / `anthropic` |
 | `/status` | 查看运行状态（含估算 tokens） |
-| `/exit` | 退出程序 (或 Ctrl+C) |
+| `/exit` | 保存并退出；空闲空输入时也可连按两次 Ctrl+C |
 
 **Shell 安全**：`shell_exec` 在权限确认前即经 `shell_policy` 黑名单拦截（`rm -rf /`、家目录删除、`curl|sh`、反弹壳、fork bomb 等）。「本会话全部允许」不绕过黑名单。
 

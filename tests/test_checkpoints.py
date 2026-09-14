@@ -375,8 +375,9 @@ async def test_tui_resume_updates_current_session(task):
     async with app.run_test() as pilot:
         app._handle_command(Command.RESUME, "")
         await pilot.pause()
-        assert cp.data["id"] in " ".join(app.screen.query_one(ChatWidget).child_labels())
-        app._handle_command(Command.RESUME, cp.data["id"])
+        from tui_agent.tui.widgets.choice import ChoiceScreen
+        assert isinstance(app.screen, ChoiceScreen)
+        await pilot.press("enter")
         await pilot.pause()
         assert not app._agent_running
         assert app.session is loop.session and app.session is not previous_session
@@ -416,10 +417,26 @@ def test_file_change_report_empty_pending_and_reverted(task):
     assert cp.file_changes()[0]['kind'] == '新增'
     assert '空文件新增' in cp.change_report(diff=True)
     existing = root / 'existing.txt'
-    existing.write_text('original\n')
+    existing.write_bytes(b'original\n')
     tracked_write(existing, 'changed\n', state)
     tracked_write(existing, 'original\n', state)
     assert len(cp.file_changes()) == 1
+
+
+def test_file_change_report_preserves_crlf_difference(task):
+    from tui_agent.tools.file_state import tracked_write
+    _, _, root = task
+    cp = Checkpoint.create('change line endings')
+    state = type('State', (), {'checkpoint': cp})()
+    path = root / 'existing.txt'
+    path.write_bytes(b'original\r\n')
+    tracked_write(path, 'original\n', state)
+    changes = cp.file_changes()
+    assert len(changes) == 1
+    assert (changes[0]['added'], changes[0]['removed']) == (1, 1)
+    assert '换行' in changes[0]['diff']
+    cp.undo(cp.fingerprint())
+    assert path.read_bytes() == b'original\r\n'
 
 
 def test_permission_preview_impact_and_invalid_match(task):
@@ -433,3 +450,52 @@ def test_permission_preview_impact_and_invalid_match(task):
     assert '无法预览' in preview
     shell = loop._format_tool_summary('shell_exec', {'command': 'pwd'})
     assert str(root) in shell and '文件影响未追踪' in shell
+
+
+@pytest.mark.parametrize('waiting', [False, True])
+async def test_ctrl_c_persists_interrupted_task_and_closes_provider(task, waiting):
+    import asyncio
+    from tui_agent.config.schema import AppConfig
+    from tui_agent.tui.app import TuiAgentApp
+    from tui_agent.tui.screens import MainScreen
+    loop, provider, _ = task
+    started = asyncio.Event()
+    closed = []
+    async def slow_chat(*args, **kwargs):
+        started.set()
+        await asyncio.Event().wait()
+        yield {}
+    async def close():
+        closed.append(True)
+    provider.aclose = close
+    if waiting:
+        provider.set_responses([MockLLMResponse(tool_calls=[call('write_file', {'path': 'not-written.txt', 'content': 'x'})])])
+        await collect(loop.run('wait for permission'))
+    else:
+        provider.chat = slow_chat
+    class App(TuiAgentApp):
+        def on_mount(self):
+            self.push_screen(MainScreen())
+        def init_agent(self):
+            self.config = AppConfig()
+            self.agent_loop = loop
+            self.session = loop.session
+    app = App()
+    async with app.run_test() as pilot:
+        if waiting:
+            app._waiting_confirmation = True
+            app._show_confirm_widget('write_file', 'not-written.txt')
+        else:
+            app._agent_running = True
+            app._agent_task = asyncio.create_task(app._process_events(loop.run('slow task')))
+            await asyncio.wait_for(started.wait(), 2)
+        await pilot.press('ctrl+c')
+        await pilot.pause()
+        assert app.is_running and not app._agent_running
+        await pilot.press('ctrl+c', 'ctrl+c')
+        await pilot.pause()
+        assert not app.is_running
+    assert closed
+    saved = Checkpoint.load(loop.checkpoint.data['id'])
+    assert saved.data['status'] == 'interrupted'
+    assert not (saved.root / 'not-written.txt').exists()

@@ -51,6 +51,8 @@ def list_sessions() -> list[dict]:
                         "tool_result",
                     }:
                         msg_count += 1
+            if msg_count == 0 and not meta.get("turn_count", 0):
+                continue  # 兼容旧版退出时写入的仅含 meta 的空会话。
             mtime = filepath.stat().st_mtime
             sessions.append(
                 {

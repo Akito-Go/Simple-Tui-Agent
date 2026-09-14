@@ -2,7 +2,7 @@
 
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.containers import Container, Horizontal
+from textual.containers import Container, Horizontal, VerticalScroll
 from textual.widgets import Static
 from textual import events
 
@@ -15,7 +15,7 @@ class MainScreen(Screen):
     """主界面 — 对话区和固定底部操作区"""
 
     CSS = """
-    Screen {
+    MainScreen {
         background: #1a1a1a;
     }
 
@@ -47,6 +47,10 @@ class MainScreen(Screen):
         margin: 0;
         padding: 0;
     }
+
+    #btw-slot { height: auto; max-height: 9; color: #c8c2b8; background: #24211e; }
+    #btw-slot Static { height: auto; padding: 0 1; }
+    MainScreen.short #btw-slot { max-height: 4; }
 
     #completion-popup {
         height: 1;
@@ -104,17 +108,16 @@ class MainScreen(Screen):
     }
 
     .user-msg {
-        color: #7ee787;
-        margin: 1 0 0 0;
+        color: #e8e4dc;
+        margin: 1 0;
         text-style: bold;
-        border-left: thick #3fb950;
-        padding-left: 1;
+        background: #262321;
+        padding: 0 1;
     }
 
     .assistant-msg {
         color: #e8e4dc;
         margin: 0 0 1 0;
-        border-left: thick #da7756;
         padding-left: 1;
     }
 
@@ -126,14 +129,12 @@ class MainScreen(Screen):
     .tool-result {
         color: #9a958c;
         margin: 0 0 1 1;
-        border-left: solid #3a3a3a;
         padding-left: 1;
     }
 
     .tool-running {
         color: #e2c08d;
         margin: 0 0 0 1;
-        border-left: solid #e2c08d;
         padding-left: 1;
     }
 
@@ -163,8 +164,6 @@ class MainScreen(Screen):
     .system-msg {
         color: #8a857c;
         margin: 1 0;
-        background: #222222;
-        border-left: thick #a9a39a;
         padding: 0 1;
     }
 
@@ -209,11 +208,11 @@ class MainScreen(Screen):
         height: 1;
         padding: 0 1;
     }
-    Screen.narrow #chat { padding: 0 1; }
-    Screen.short .confirm-preview { max-height: 3; }
-    Screen.short .confirm-inline { max-height: 11; }
+    MainScreen.narrow #chat { padding: 0 1; }
+    MainScreen.short .confirm-preview { max-height: 3; }
+    MainScreen.short .confirm-inline { max-height: 11; }
     #input-wrap:focus-within { border-top: solid #da7756; }
-    Screen.awaiting #input-wrap { border-top: solid #e2c08d; }
+    MainScreen.awaiting #input-wrap { border-top: solid #e2c08d; }
     .tool-result:focus { border-left: solid #da7756; background: #24211e; }
     .tool-result { height: auto; max-height: 16; overflow-y: auto; }
     .tool-failed { color: #e06c75; border-left: solid #e06c75; }
@@ -224,6 +223,7 @@ class MainScreen(Screen):
         yield ChatWidget()
         with Container(id="input-container"):
             yield Static("", id="completion-popup", markup=False)
+            yield VerticalScroll(id="btw-slot")
             yield Container(id="confirm-slot")
             with Horizontal(id="input-wrap"):
                 yield Static(">", id="input-prompt", markup=False)
@@ -238,6 +238,8 @@ class MainScreen(Screen):
 
     def on_mount(self) -> None:
         """Screen 挂载后通知 App 初始化 Agent"""
+        self.set_class(self.app.size.width < 76, "narrow")
+        self.set_class(self.app.size.height < 30, "short")
         self.app.init_agent()
         self.call_after_refresh(lambda: self.query_one("#input", InputWidget).focus())
 
@@ -255,7 +257,7 @@ class MainScreen(Screen):
         elif status == "运行中" or status.startswith("执行 "):
             hint = "Esc 停止 · 点击工具结果展开 · 可滚动查看历史"
         else:
-            hint = "Enter 发送 · /help 帮助 · /sessions 历史"
+            hint = "Enter 发送 · /help 帮助 · Ctrl+C 复制/停止"
         if self.has_class("narrow"):
-            hint = "Y 允许 · A 会话 · N 拒绝 · Esc 停止" if waiting else "Esc 停止 · /help · /sessions"
+            hint = "Y 允许 · A 会话 · N 拒绝 · Esc 停止" if waiting else "Esc 停止 · Ctrl+C 复制/停止 · /help"
         self.query_one("#footer-hint", Static).update(hint)

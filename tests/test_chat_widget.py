@@ -48,7 +48,7 @@ class TestChatHelpers:
             await pilot.pause()
             chat.show_thinking()
             label = chat.child_labels()[0]
-            assert label.startswith("🤖 ")
+            assert label.startswith("● ")
             assert "思考中" in label
             assert any(frame in label for frame in ["⠋", "⠙", "⠹"])
 
@@ -67,10 +67,10 @@ class TestWelcomeBanner:
             max_turns=50,
             context_max_tokens=80000,
             tip_index=0,
-            app_version="0.1.0",
+            app_version="0.1.1",
         )
         assert "STA" in banner
-        assert "tui-agent v0.1.0" in banner
+        assert "tui-agent v0.1.1" in banner
         assert "gpt-4o-mini" in banner
         assert "openai_compat" in banner
         assert "最大轮次" in banner
@@ -145,16 +145,16 @@ class TestChatWidgetOrder:
             chat.start_streaming()
             chat.append_streaming("先看目录。")
             chat.show_tool_running("list_dir", {"path": "."})
-            chat.add_tool_result("list_dir", {"path": "."}, auto=True, result="main.py", success=True)
+            chat.add_tool_result("list_dir", {"path": "."}, result="main.py", success=True)
             chat.start_streaming()
             chat.append_streaming("继续写代码。")
             chat.finish_streaming()
 
             labels = chat.child_labels()
-            assert labels[0] == "🤖 先看目录。"
+            assert labels[0] == "● 先看目录。"
             assert labels[1].startswith("● list_dir")
-            assert "⎿" in labels[1]
-            assert labels[2] == "🤖 继续写代码。"
+            assert "✓" in labels[1]
+            assert labels[2] == "● 继续写代码。"
 
     @pytest.mark.asyncio
     async def test_assistant_keeps_spinner_during_tool_execution(self):
@@ -168,14 +168,14 @@ class TestChatWidgetOrder:
             chat.show_tool_running("list_dir", {"path": "."})
 
             labels = chat.child_labels()
-            assert labels[0].startswith("🤖 ")
+            assert labels[0].startswith("● ")
             assert any(frame in labels[0] for frame in ["⠋", "⠙", "⠹"])
             assert "先看目录。" in labels[0]
             assert labels[1].startswith("● list_dir")
 
-            chat.add_tool_result("list_dir", {"path": "."}, auto=True, result="main.py", success=True)
+            chat.add_tool_result("list_dir", {"path": "."}, result="main.py", success=True)
             labels = chat.child_labels()
-            assert labels[0] == "🤖 先看目录。"
+            assert labels[0] == "● 先看目录。"
             assert "⠋" not in labels[0]
 
     @pytest.mark.asyncio
@@ -203,7 +203,7 @@ class TestChatWidgetOrder:
             chat = app.query_one(ChatWidget)
             await pilot.pause()
             chat.add_user_message("hello")
-            assert chat.child_labels()[0] == "👤 hello"
+            assert chat.child_labels()[0] == "❯ hello"
 
     @pytest.mark.asyncio
     async def test_welcome_message_class(self):

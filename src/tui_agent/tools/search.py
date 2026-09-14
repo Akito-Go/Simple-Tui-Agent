@@ -12,7 +12,7 @@ from .workspace import get_workspace_root, resolve_in_workspace
 
 
 async def run_search(
-    mode: str, pattern: str, path: str = ".", timeout: float = 5
+    mode: str, pattern: str, path: str = ".", timeout: float = 5, *, options: dict | None = None
 ) -> ToolResult:
     target, error = resolve_in_workspace(path)
     if error:
@@ -37,7 +37,7 @@ async def run_search(
     )
     try:
         payload = json.dumps(
-            [str(get_workspace_root()), mode, pattern, str(target)]
+            [str(get_workspace_root()), mode, pattern, str(target), options or {}]
         ).encode()
         stdout, stderr = await asyncio.wait_for(process.communicate(payload), timeout)
         if process.returncode:

@@ -1,19 +1,21 @@
 """Textual App 主类 — 事件绑定、Agent Loop 集成"""
 
 import asyncio
+from time import monotonic
 from contextlib import aclosing
 from pathlib import Path
 
 from textual.app import App
 from textual.binding import Binding
 from textual.containers import Container
-from textual.widgets import Input
+from textual.widgets import Input, Static
 
 from .screens import MainScreen
 from .widgets.header import HeaderWidget
 from .widgets.chat import ChatWidget
 from .widgets.input import InputWidget, INPUT_PLACEHOLDER, INPUT_PLACEHOLDER_CONFIRM
 from .widgets.confirm import ConfirmWidget
+from .widgets.choice import ChoiceScreen
 from .welcome import WelcomeWidget
 from .commands import parse_command, Command
 
@@ -51,6 +53,7 @@ class TuiAgentApp(App):
 
     # Esc 全局优先：运行中 / 等待确认时均可中断（与 /stop 相同）
     BINDINGS = [
+        Binding("ctrl+c", "copy_or_interrupt", "复制 / 停止", show=False, priority=True),
         Binding("escape", "stop_agent", "Stop", show=False, priority=True),
     ]
 
@@ -65,9 +68,71 @@ class TuiAgentApp(App):
         self._agent_task: asyncio.Task | None = None
         self._welcome_shown: bool = False
         self._pending_undo = None
+        self._exiting = False
+        self._exit_armed_at = 0.0
+        self._btw_task = None
+        self._btw_widget = None
+
+    async def action_copy_or_interrupt(self) -> None:
+        selected = self.focused.selected_text if isinstance(self.focused, Input) else None
+        selected = selected or self.screen.get_selected_text()
+        if selected:
+            self.copy_to_clipboard(selected)
+            self._exit_armed_at = 0.0
+            return
+        if isinstance(self.screen, ChoiceScreen) or self._btw_widget is not None or self._pending_undo is not None or self._agent_running or self._waiting_confirmation:
+            self._exit_armed_at = 0.0
+            self.action_stop_agent()
+            return
+        field = self.screen.query_one(InputWidget)
+        if field.value:
+            field.value = ""
+            self._exit_armed_at = 0.0
+            return
+        now = monotonic()
+        if self._exit_armed_at and now - self._exit_armed_at <= 2:
+            await self.action_exit_app()
+        else:
+            self._exit_armed_at = now
+            self.screen.query_one("#footer-hint").update("再次按 Ctrl+C（2 秒内）退出 · 有选中文本时优先复制")
+
+    async def action_exit_app(self) -> None:
+        """先停止任务并保存，再由卸载流程关闭客户端。"""
+        if self._exiting:
+            return
+        self._exiting = True
+        await self._close_btw()
+        task = self._agent_task
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        try:
+            if self.agent_loop is not None:
+                self.agent_loop.stop("退出程序，任务已中断")
+            elif self.session is not None:
+                from ..session.storage import save_session
+                save_session(self.session)
+        except (OSError, ValueError) as exc:
+            logger.error(f"退出时保存失败: {exc}")
+        self.exit()
+
+    def _show_choice(self, title, labels, callback, selected=0) -> None:
+        def chosen(index):
+            if index is not None:
+                callback(index)
+            if not isinstance(self.screen, ChoiceScreen):
+                self.call_after_refresh(lambda: self.screen.query_one(InputWidget).focus() if not isinstance(self.screen, ChoiceScreen) else None)
+
+        self.push_screen(ChoiceScreen(title, labels, selected), chosen)
 
     def action_stop_agent(self) -> None:
         """Esc 快捷键：终止当前 Agent / 取消待确认操作"""
+        if isinstance(self.screen, ChoiceScreen):
+            self.screen.dismiss(None)
+            return
+        if self._btw_widget is not None:
+            self.run_worker(self._close_btw(), group="btw-close", exclusive=True)
+            return
         if self._pending_undo is not None:
             self._pending_undo = None
             self.screen.query_one(ChatWidget).add_system_message("已取消撤销预览")
@@ -202,21 +267,12 @@ class TuiAgentApp(App):
             return
 
         text = event.value.strip()
-
-        # 会话选择模式
-        if getattr(self, "_selecting_session", False):
-            cmd_result = parse_command(text)
-            if cmd_result.is_command:
-                self._handle_command(cmd_result.command, cmd_result.args)
-            else:
-                self._handle_session_selection(text)
-            event.input.value = ""
-            return
+        self._exit_armed_at = 0.0
 
         # /stop 优先于所有拦截（运行中/等待确认态均可执行）
         cmd_result = parse_command(text)
-        if cmd_result.is_command and cmd_result.command == Command.STOP:
-            self._handle_command(Command.STOP, cmd_result.args)
+        if cmd_result.is_command and cmd_result.command in (Command.STOP, Command.EXIT, Command.BTW):
+            self._handle_command(cmd_result.command, cmd_result.args)
             event.input.value = ""
             return
 
@@ -246,33 +302,6 @@ class TuiAgentApp(App):
         # 正常对话
         self._run_agent(text)
 
-    def _handle_session_selection(self, text: str) -> None:
-        """处理 /sessions 触发的会话选择输入"""
-        screen = self.screen
-        chat = screen.query_one("#chat", ChatWidget)
-        sessions = getattr(self, "_pending_sessions", [])
-
-        if text.upper() in ("N", "NEW", "C", "CANCEL", "取消"):
-            self._selecting_session = False
-            self._pending_sessions = []
-            chat.add_system_message("已取消会话恢复")
-            self._update_header(status="就绪")
-            return
-
-        if text.isdigit():
-            idx = int(text) - 1
-            if 0 <= idx < len(sessions):
-                self._resume_session_at(idx)
-                return
-            chat.add_system_message(
-                f"无效序号，请输入 1-{min(len(sessions), 9)}，或 N 取消"
-            )
-            return
-
-        chat.add_system_message(
-            f"请输入序号 1-{min(len(sessions), 9)} 恢复会话，或 N 取消"
-        )
-
     def _list_sessions_for_resume(self) -> None:
         """列出可恢复会话并进入选择模式"""
         from ..session.loader import list_sessions
@@ -284,21 +313,9 @@ class TuiAgentApp(App):
             chat.add_system_message("暂无历史会话可恢复")
             return
 
-        self._selecting_session = True
         self._pending_sessions = sessions
-        lines = [
-            "📂 历史会话（输入序号恢复，N 取消）",
-        ]
-        for i, s in enumerate(sessions[:9], 1):
-            preview = s.get("preview", "")
-            preview_part = f"  「{preview}」" if preview else ""
-            lines.append(
-                f"  {i}. {s['last_active']} · {s['model']} · "
-                f"轮次 {s['turn_count']} · {s['msg_count']} 条消息{preview_part}"
-            )
-        lines.append("  N. 取消")
-        chat.add_system_message("\n".join(lines))
-        self._update_header(status="选择会话")
+        labels = [f"{s['last_active']} · {s['model']} · {s.get('preview', '')[:80]}" for s in sessions]
+        self._show_choice("恢复历史会话", labels, self._resume_session_at)
 
     def _resume_session_at(self, idx: int) -> None:
         """按列表序号恢复会话"""
@@ -316,7 +333,6 @@ class TuiAgentApp(App):
             chat.add_system_message("会话加载失败")
             return
 
-        self._selecting_session = False
         self._pending_sessions = []
         chat.clear()
         self._do_init_agent(
@@ -326,11 +342,120 @@ class TuiAgentApp(App):
             show_welcome=True,
         )
 
+    def _cleanup_sessions(self, all_sessions, chat):
+        from ..session.loader import list_sessions
+        from ..session.cleanup import prepare_cleanup
+
+        current = self.session.session_id if self.session else None
+        sessions = [s for s in list_sessions() if s["session_id"] != current]
+        if not sessions:
+            chat.add_system_message("没有可删除的过去会话（当前会话保留）")
+            return
+
+        def preview(ids):
+            try:
+                plan = prepare_cleanup(ids, current)
+            except (OSError, ValueError) as exc:
+                chat.add_error(f"无法预览历史清理：{exc}")
+                return
+            checkpoint_count = len(plan.files) - len(plan.session_ids)
+            title = f"永久删除 {len(plan.session_ids)} 个过去会话和 {checkpoint_count} 个关联检查点？\n当前会话保留，重启后仍可恢复。所选历史的恢复与撤销记录将丢失，项目文件不变。"
+
+            def confirm(index):
+                if index != 1:
+                    return
+                try:
+                    count = plan.delete(self.session.session_id if self.session else None)
+                    self._pending_undo = None
+                    self._pending_sessions = []
+                    chat.add_system_message(f"已清理 {len(plan.session_ids)} 个过去会话，共删除 {count} 个历史文件。当前会话已保留，重启后仍会出现在历史中。")
+                    for welcome in chat.query(WelcomeWidget):
+                        from .welcome import _format_recent_activity
+                        welcome.query_one('#welcome-recent', Static).update(_format_recent_activity(list_sessions()))
+                except (OSError, ValueError) as exc:
+                    chat.add_error(f"清理未完成：{exc}")
+
+            self._show_choice(title, ["取消，保留历史", "确认永久删除"], confirm)
+
+        if all_sessions:
+            preview([s["session_id"] for s in sessions])
+        else:
+            self._show_choice("选择要删除的过去会话", [f"{s['last_active']} · {s['model']} · {s['preview']}" for s in sessions], lambda i: preview([sessions[i]['session_id']]))
+
+    async def _close_btw(self):
+        task, widget = self._btw_task, self._btw_widget
+        self._btw_task = self._btw_widget = None
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        if widget is not None and widget.is_attached:
+            await widget.remove()
+
+    def _start_btw(self, question, chat):
+        from .btw import build_btw_messages
+        if not question:
+            chat.add_system_message("用法：/btw <顺便问的问题>；Esc 关闭临时问答")
+            return
+        if not self.config or not self.agent_loop:
+            chat.add_error("Agent 未初始化")
+            return
+        if self._waiting_confirmation:
+            chat.add_system_message("请先处理当前权限确认，再使用 /btw")
+            return
+        if self._btw_widget is not None:
+            chat.add_system_message("请先按 Esc 关闭当前临时问答，再提新问题")
+            return
+        if len(question) > 8000:
+            chat.add_system_message("临时问题过长，请控制在 8000 字符以内")
+            return
+        messages = build_btw_messages(self.session.build_messages() if self.session else [], question)
+        from ..session.compressor import estimate_tokens
+        budget = self.config.context_max_tokens - min(2048, self.config.context_max_tokens // 4)
+        while messages[1]['content'] and estimate_tokens(messages) > budget:
+            messages[1]['content'] = messages[1]['content'][len(messages[1]['content']) // 2 + 1:]
+        if estimate_tokens(messages) > budget:
+            chat.add_system_message("临时问题超过当前上下文预算，请缩短问题")
+            return
+        config = self.config.llm.model_copy(deep=True)
+        widget = Static(f"顺便问 · {question}\n正在回答…\nEsc 关闭 · 不写入主会话", markup=False)
+        self._btw_widget = widget
+        self.screen.query_one('#btw-slot').mount(widget)
+        self._btw_task = asyncio.create_task(self._answer_btw(config, messages, question, widget))
+
+    async def _answer_btw(self, config, messages, question, widget):
+        provider = None
+        answer = ""
+        try:
+            provider = create_llm_provider(config, get_api_key(config.provider))
+            async with aclosing(provider.chat(messages, tools=[], stream=True)) as events:
+                async for event in events:
+                    if event['type'] in {'text_delta', 'text'}:
+                        answer += event['content']
+                        widget.update(f"顺便问 · {question}\n{answer[:16000]}\nEsc 关闭 · 不写入主会话")
+                        if len(answer) > 16000:
+                            widget.update(f"顺便问 · {question}\n{answer[:16000]}\n[回答过长，已截断] · Esc 关闭")
+                            break
+                    elif event['type'] == 'error':
+                        raise RuntimeError(event['message'])
+                    elif event['type'] == 'finish':
+                        break
+            if not answer:
+                widget.update(f"顺便问 · {question}\n模型没有返回文字；此处不支持工具调用。\nEsc 关闭")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            widget.update(f"临时问答失败：{exc}\nEsc 关闭；主任务不受影响")
+        finally:
+            if provider is not None:
+                try:
+                    await provider.aclose()
+                except Exception as exc:
+                    logger.warning(f"关闭临时问答连接失败：{exc}")
+
     def _handle_command(self, command: Command, args: str) -> None:
         """处理内置命令"""
         screen = self.screen
         chat = screen.query_one("#chat", ChatWidget)
-        header = screen.query_one("#header", HeaderWidget)
 
         if command == Command.HELP:
             help_text = """
@@ -351,6 +476,8 @@ class TuiAgentApp(App):
   /undo confirm - 确认已预览的撤销；/undo cancel 取消
   /files    - 查看当前任务文件列表与净变更统计
   /diff [路径] - 查看当前任务全部或指定文件差异
+  /sessions delete - 选择并删除历史；/sessions delete all 清理全部非当前会话
+  /btw <问题> - 临时旁路问答，不调用工具、不写入主会话
 
 🛠 可用工具:
   list_dir    - 列出目录内容
@@ -364,6 +491,9 @@ class TuiAgentApp(App):
 权限确认时可选择「本次会话全部允许」。
 """
             chat.add_system_message(help_text)
+
+        elif command == Command.BTW:
+            self._start_btw(args.strip(), chat)
 
         elif command == Command.PLAN:
             goal = (args or "").strip()
@@ -386,7 +516,10 @@ class TuiAgentApp(App):
                 chat.add_system_message("当前没有任务检查点。执行任务或使用 /resume 后可查看文件变更。")
             else:
                 try:
-                    chat.add_system_message(checkpoint.change_report(diff=command == Command.DIFF, path=args.strip()))
+                    if command == Command.DIFF:
+                        chat.add_diff_report(checkpoint, args.strip())
+                    else:
+                        chat.add_system_message(checkpoint.change_report())
                 except (OSError, ValueError) as exc:
                     chat.add_error(f"无法查看文件变更：{exc}")
 
@@ -398,9 +531,7 @@ class TuiAgentApp(App):
             if self._agent_running or self._waiting_confirmation:
                 chat.add_system_message("请先停止当前任务")
                 return
-            if getattr(self, "_selecting_session", False):
-                self._selecting_session = False
-                self._pending_sessions = []
+            self._pending_sessions = []
             if self.session:
                 self.session.clear()
             if self.agent_loop is not None:
@@ -424,7 +555,9 @@ class TuiAgentApp(App):
                 chat.add_system_message("请先等待当前任务结束，或使用 /stop")
                 return
             args = (args or "").strip()
-            if not args:
+            if args in ("delete", "delete all"):
+                self._cleanup_sessions(args == "delete all", chat)
+            elif not args:
                 self._list_sessions_for_resume()
             elif args.isdigit():
                 from ..session.loader import list_sessions
@@ -444,10 +577,10 @@ class TuiAgentApp(App):
                 chat.add_system_message("用法: /sessions  或  /sessions <序号>")
 
         elif command == Command.MODEL:
-            self._handle_model_command(chat, header, args)
+            self._handle_model_command(chat, args)
 
         elif command == Command.PROVIDER:
-            self._handle_provider_command(chat, header, args)
+            self._handle_provider_command(chat, args)
 
         elif command == Command.STATUS:
             if self.config and self.session:
@@ -517,12 +650,7 @@ class TuiAgentApp(App):
                 chat.add_system_message("当前没有正在运行的任务")
 
         elif command == Command.EXIT:
-            chat.add_system_message("正在退出...")
-            if self.session:
-                from ..session.storage import save_session
-
-                save_session(self.session)
-            self.exit()
+            self.run_worker(self.action_exit_app(), group="exit", exclusive=True)
 
     def _handle_checkpoint_command(self, command, args, chat):
         from ..session.checkpoint import Checkpoint, RESUMABLE
@@ -537,8 +665,11 @@ class TuiAgentApp(App):
                 self._pending_undo = None
                 if not args:
                     tasks = [cp for cp in Checkpoint.recent() if cp.data["status"] in RESUMABLE]
-                    lines = [f"{cp.data['id']} · {cp.data['phase']} · {cp.data['goal']}" for cp in tasks[:10]]
-                    chat.add_system_message("未完成任务（最近 10 项）：\n" + "\n".join(lines) + "\n使用 /resume <检查点ID> 继续" if lines else "暂无可恢复任务")
+                    tasks = tasks[:10]
+                    if tasks:
+                        self._show_choice("继续未完成任务", [f"{cp.data['phase']} · {cp.data['goal'][:80]} · {cp.data['id'][:8]}" for cp in tasks], lambda i: self._handle_checkpoint_command(command, tasks[i].data["id"], chat))
+                    else:
+                        chat.add_system_message("暂无可恢复任务")
                     return
                 checkpoint = Checkpoint.load(args)
                 if checkpoint.data["status"] not in RESUMABLE:
@@ -575,8 +706,11 @@ class TuiAgentApp(App):
             self._pending_undo = None
             tasks = [cp for cp in Checkpoint.recent() if cp.data["files"] and cp.data["status"] != "undone"]
             if args == "list":
-                lines = [f"{cp.data['id']} · {cp.data['goal']} · {len(cp.data['files'])} 个记录文件" for cp in tasks[:10]]
-                chat.add_system_message("文件检查点（最近 10 项）：\n" + "\n".join(lines) if lines else "暂无文件检查点")
+                tasks = tasks[:10]
+                if tasks:
+                    self._show_choice("选择要预览撤销的任务", [f"{cp.data['goal'][:80]} · {len(cp.data['files'])} 个记录文件" for cp in tasks], lambda i: self._handle_checkpoint_command(command, tasks[i].data["id"], chat))
+                else:
+                    chat.add_system_message("暂无文件检查点")
                 return
             checkpoint = Checkpoint.load(args) if args else (tasks[0] if tasks else None)
             if checkpoint is None:
@@ -616,7 +750,7 @@ class TuiAgentApp(App):
         task.add_done_callback(self._provider_cleanup_tasks.discard)
 
     def _handle_model_command(
-        self, chat: ChatWidget, header: HeaderWidget, args: str
+        self, chat: ChatWidget, args: str
     ) -> None:
         """列出或切换模型（必要时跨 Provider 重建客户端）"""
         if not self.config:
@@ -627,16 +761,10 @@ class TuiAgentApp(App):
         current = self.config.llm.model
 
         if not args or args == "list":
-            lines = [
-                f"📦 可用模型（当前: {current} · provider={self.config.llm.provider}）:"
-            ]
-            for index, model in enumerate(models, start=1):
-                inferred = infer_provider_for_model(model) or self.config.llm.provider
-                mark = "  ← 当前" if model == current else ""
-                lines.append(f"  {index}. {model}  [{inferred}]{mark}")
-            lines.append("")
-            lines.append("切换: /model <序号> 或 /model <模型名>")
-            chat.add_system_message("\n".join(lines))
+            if not models:
+                chat.add_system_message("暂无可用模型，请先配置模型列表")
+                return
+            self._show_choice("选择模型", [f"{model}{' · 当前' if model == current else ''}" for model in models], lambda i: self._handle_model_command(chat, models[i]), models.index(current) if current in models else 0)
             return
 
         target = args
@@ -675,7 +803,7 @@ class TuiAgentApp(App):
             chat.add_system_message(f"✅ 已切换模型: {target}")
 
     def _handle_provider_command(
-        self, chat: ChatWidget, header: HeaderWidget, args: str
+        self, chat: ChatWidget, args: str
     ) -> None:
         """查看或切换 LLM Provider"""
         if not self.config:
@@ -684,12 +812,8 @@ class TuiAgentApp(App):
 
         current = normalize_provider_name(self.config.llm.provider)
         if not args or args == "list":
-            chat.add_system_message(
-                "🔌 Provider:\n"
-                f"  当前: {current}\n"
-                "  可选: openai_compat / anthropic\n"
-                "切换: /provider <名称>"
-            )
+            providers = ["openai_compat", "anthropic"]
+            self._show_choice("选择 Provider", [f"{p}{' · 当前' if p == current else ''}" for p in providers], lambda i: self._handle_provider_command(chat, providers[i]), providers.index(current))
             return
 
         try:
@@ -874,12 +998,9 @@ class TuiAgentApp(App):
                     chat.append_streaming(event.content)
 
                 elif isinstance(event, ToolCallStart):
-                    tool = self.agent_loop.tool_registry.get(event.name)
-                    is_auto = tool and tool.permission_level.value == "read"
                     pending_tool = {
                         "name": event.name,
                         "arguments": event.arguments,
-                        "auto": is_auto,
                     }
                     self.agent_loop.state.phase = "执行工具"
                     self.agent_loop.state.total_tools += 1
@@ -896,7 +1017,6 @@ class TuiAgentApp(App):
                         chat.add_tool_result(
                             name=pending_tool["name"],
                             arguments=pending_tool["arguments"],
-                            auto=pending_tool["auto"],
                             result=event.output,
                             success=event.success,
                         )
@@ -905,7 +1025,6 @@ class TuiAgentApp(App):
                         chat.add_tool_result(
                             event.name,
                             {},
-                            auto=True,
                             result=event.output,
                             success=event.success,
                         )
@@ -966,6 +1085,7 @@ class TuiAgentApp(App):
 
     async def on_unmount(self) -> None:
         """退出前等待运行任务收尾，再释放当前及被替换的客户端。"""
+        await self._close_btw()
         task = self._agent_task
         if task is not None and task is not asyncio.current_task():
             if not task.done():

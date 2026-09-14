@@ -18,6 +18,7 @@ class Command(str, Enum):
     UNDO = "/undo"
     DIFF = "/diff"
     FILES = "/files"
+    BTW = "/btw"
 
 
 @dataclass
@@ -36,6 +37,8 @@ def parse_command(text: str) -> CommandResult:
         CommandResult: 包含是否为命令、命令类型和参数
     """
     text = text.strip()
+    if text == "/session" or text.startswith("/session "):
+        text = "/sessions" + text[len("/session"):]
 
     for cmd in Command:
         if text == cmd.value:

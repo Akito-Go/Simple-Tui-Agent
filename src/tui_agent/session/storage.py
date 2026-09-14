@@ -16,6 +16,8 @@ def get_log_dir() -> Path:
 
 def save_session(session: SessionManager) -> Path:
     filepath = get_log_dir() / f"{session.session_id}.jsonl"
+    if len(session._transcript) <= 1 and session.turn_count == 0:
+        return filepath  # 只打开程序或操作菜单，不产生空会话日志。
     since = session._saved_message_count
     records = session.to_log_records(since_index=since)
     metadata = (session.model, session.turn_count)

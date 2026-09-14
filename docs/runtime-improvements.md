@@ -86,3 +86,27 @@ STA_TEST_LOCAL_HTTP=1 python -m pytest tests/test_stream_shutdown.py -q
 ### 任务文件变更展示
 
 文件影响预览与 checkpoint 报告复用文本差异计算。`/files`、`/diff [路径]` 和任务完成汇总以任务快照为基准计算净变化；外部修改仅标注，不计入 Agent 结果。权限确认新增文件列表、操作类型和预计行数，Shell 展示工作目录及未追踪影响说明。
+
+### 与 kay-go 的原子工具对照
+
+对照 kay-go 的 `app/cli/toolreg.go`、`core/tools/read`、`core/tools/grep` 和 `pkg/embed_data/tools/grep.yaml`，STA 保持 7 个内置工具：
+
+| STA | kay-go 核心对应项 | 结论 |
+| --- | --- | --- |
+| `read_file` | Read | 保留，文本读取是基本能力；图片和 Notebook 读取属于后续扩展 |
+| `write_file`、`edit_file` | Write、Edit | 保留，完整写入与精确替换用途不同 |
+| `glob_search`、`grep_search` | Glob、Grep | 保留，文件定位与内容定位不同 |
+| `shell_exec` | Bash | 保留，用于测试、构建及其他命令执行 |
+| `list_dir` | 核心注册没有独立对应项 | 保留，廉价浏览目录及空目录，避免为浏览申请 Shell 权限 |
+
+本次增强 `grep_search` 的 `glob` 文件筛选、`ignore_case` 和 `literal` 普通文本匹配，继续使用有预算、可取消的隔离搜索进程，保留敏感路径与工作区检查。`glob` 不含斜杠时匹配任意层级文件名，含斜杠时相对工作区匹配，如 `src/**/*.py`。搜索结果仍最多 200 项；超限建议缩小范围。
+
+kay-go 的 Task、Agent、Team、Snip、ToolSearch 依赖任务调度、协作或工具延迟加载机制，暂不照搬。当前优先补强已有工具，避免增加相互重叠的删除、移动、mkdir 等 Shell 包装工具。后续可优先考虑搜索上下文行与分页、长运行命令后台管理，但需配套预算、生命周期和恢复机制。
+
+### 模型服务过载
+
+请求建立阶段遇到 HTTP 408、429 或 5xx（含 529）时，按 `TUI_AGENT_MAX_RETRIES` 指定次数指数退避重试。认证等其他 4xx 不重试。流式读取阶段失败不会自动重放请求，已接收内容与失败检查点会保留，可稍后使用 `/resume` 继续。界面统一显示一次错误，服务过载时提示稍后重试或切换模型。
+
+### 0.1.1 代码清理
+
+删除键盘菜单替代后无法进入的旧会话序号输入模式；保留 `/sessions <序号>` 直接恢复。移除工具展示中无用途的 `auto` 标记和模型／Provider 切换中的闲置 Header 参数，权限判断仍由运行时守卫负责。重试异常列表以 `OSError` 覆盖其超时与连接异常子类，行为保持一致。版本同步为 `0.1.1`，没有新增工具或更改会话存储格式。
