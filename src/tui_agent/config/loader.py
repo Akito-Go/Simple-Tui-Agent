@@ -221,31 +221,24 @@ def load_config(project_root: Path | None = None) -> AppConfig:
 
 
 def get_api_key(provider: str | None = None) -> str:
-    """从环境变量获取 API Key（支持 .env 文件）"""
+    """环境变量（含工作区 .env）优先，用户配置按服务商提供后备密钥。"""
     name = (provider or "").strip().lower()
-    if name in ("anthropic", "claude"):
-        api_key = (
-            os.environ.get("ANTHROPIC_API_KEY", "")
-            or os.environ.get("TUI_AGENT_API_KEY", "")
-        )
-        if not api_key:
-            raise ValueError(
-                "未设置 ANTHROPIC_API_KEY（或 TUI_AGENT_API_KEY）。请通过以下方式之一配置:\n"
-                "  1. 创建 .env 文件: echo 'ANTHROPIC_API_KEY=<your_key>' > .env\n"
-                "  2. 设置环境变量: export ANTHROPIC_API_KEY=<your_key>\n"
-                "  3. 并设置 TUI_AGENT_PROVIDER=anthropic"
-            )
-        return api_key
+    provider_key = "anthropic" if name in ("anthropic", "claude") else "openai_compat"
 
-    api_key = (
-        os.environ.get("TUI_AGENT_API_KEY", "")
-        or os.environ.get("OPENAI_API_KEY", "")
-        or os.environ.get("ANTHROPIC_API_KEY", "")
+    env_names = (
+        ("ANTHROPIC_API_KEY", "TUI_AGENT_API_KEY")
+        if provider_key == "anthropic"
+        else ("TUI_AGENT_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY")
     )
-    if not api_key:
-        raise ValueError(
-            "未设置 TUI_AGENT_API_KEY（或 OPENAI_API_KEY / ANTHROPIC_API_KEY）。请通过以下方式之一配置:\n"
-            "  1. 创建 .env 文件: echo 'TUI_AGENT_API_KEY=<your_key>' > .env\n"
-            "  2. 设置环境变量: export TUI_AGENT_API_KEY=<your_key>"
-        )
-    return api_key
+    for env_name in env_names:
+        if api_key := os.environ.get(env_name):
+            return api_key
+
+    keys = _load_yaml(Path.home() / ".tui-agent.yaml").get("api_keys") or {}
+    api_key = keys.get(provider_key, "")
+    if isinstance(api_key, str) and api_key.strip():
+        return api_key.strip()
+    raise ValueError(
+        f"未设置 {' / '.join(env_names)}。请运行 sta --setup，"
+        "或通过环境变量、工作区 .env 配置对应密钥。"
+    )

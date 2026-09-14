@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tui-agent"
-version = "0.1.1"
+version = "0.2.0"
 description = "TUI 终端编码 Agent — 从零实现的 AI 编码助手"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -41,6 +41,7 @@ dev = [
 ]
 
 [project.scripts]
+sta = "tui_agent.__main__:main"
 tui-agent = "tui_agent.__main__:main"
 
 [tool.setuptools.packages.find]

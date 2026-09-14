@@ -2,14 +2,15 @@
 
 ## 启动
 
-在项目目录激活虚拟环境后执行：
+通过 `uv tool install` 安装后，在目标项目目录直接执行：
 
 ```bash
-source .venv/bin/activate
-python -m tui_agent
+sta
 ```
 
-Windows 激活方式和首次 API 配置见 [README](../README.md)。如果安装时使用了 `pip install -e .`，更新源码后重启即可看到界面变化。
+无需激活虚拟环境。首次缺少 API Key 时自动进入配置向导，配置保存在 `~/.tui-agent.yaml`，换项目可以复用。`sta --setup` 可重新配置，`sta --version` 查看版本。工作区 `.env` 和环境变量优先于用户配置。
+
+安装、更新和卸载命令见 [README](../README.md)。若使用 `pip install -e .` 开发，仍需激活对应虚拟环境；更新源码后重启即可看到变化。
 
 ## STA 坐猫
 

@@ -65,8 +65,18 @@ class MockLLMProvider(LLMProvider):
 def _isolate_workspace(tmp_path, monkeypatch):
     """隔离 cwd 和工具工作区，防止日志、检查点写入真实项目。"""
     from tui_agent.tools.workspace import reset_workspace_root
+    from pathlib import Path
+    import os
 
     monkeypatch.chdir(tmp_path)
+    user_home = tmp_path.parent / f"{tmp_path.name}-home"
+    user_home.mkdir(exist_ok=True)
+    monkeypatch.setattr(Path, "home", lambda: user_home)
+    # dotenv 会直接修改环境变量；使用副本避免跨测试泄漏，也不读取真实密钥。
+    monkeypatch.setattr(os, "environ", os.environ.copy())
+    for key in list(os.environ):
+        if key.startswith("TUI_AGENT_") or key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+            monkeypatch.delenv(key)
     reset_workspace_root()
     yield
     reset_workspace_root()

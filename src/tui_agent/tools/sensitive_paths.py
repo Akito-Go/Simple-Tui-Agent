@@ -27,6 +27,8 @@ def check_sensitive_path(path: Path) -> str | None:
         若为敏感文件返回错误说明，否则返回 None
     """
     resolved = path.resolve()
+    if resolved == (Path.home() / ".tui-agent.yaml").resolve():
+        return "敏感文件禁止读取: 用户配置可能包含 API Key"
     if resolved != path:
         blocked = check_sensitive_path(resolved)
         if blocked:
