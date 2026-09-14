@@ -8,11 +8,13 @@ from pathlib import Path
 from typing import Any
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Center, Horizontal, Vertical
 from textual.widgets import Static
 
 # 终端半块像素：尖耳、弯弯笑眼、收拢前爪和右侧卷尾。
+# 固定画布宽度，避免逐行居中时将头部和身体错开一列。
 WELCOME_ICON = "\n".join(
+    row.ljust(23) for row in
     [
         "    ▄▄        ▄▄       ",
         "    ███▄    ▄███       ",
@@ -170,9 +172,14 @@ class WelcomeWidget(Vertical):
         height: auto;
     }
 
+    .welcome-logo-container {
+        height: auto;
+    }
+
     .welcome-logo {
+        width: 23;
         color: #da7756;
-        text-align: center;
+        text-align: left;
         text-style: bold;
         margin: 0 0 1 0;
     }
@@ -247,7 +254,8 @@ class WelcomeWidget(Vertical):
 
         with Horizontal(id="welcome-body"):
             with Vertical(id="welcome-left"):
-                yield Static(WELCOME_ICON, classes="welcome-logo", markup=False)
+                with Center(classes="welcome-logo-container"):
+                    yield Static(WELCOME_ICON, classes="welcome-logo", markup=False)
                 yield Static(
                     " · ".join(link_bits),
                     classes="welcome-links",
