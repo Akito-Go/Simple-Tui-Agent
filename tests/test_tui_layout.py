@@ -68,3 +68,19 @@ async def test_tool_details_keyboard_toggle_and_error_state():
         failed = list(chat.query(ToolResultWidget))[-1]
         assert failed.has_class("tool-failed")
         assert "useful diagnosis" in str(failed.content)
+
+async def test_plan_command_only_shows_plan():
+    from tui_agent.tui.commands import Command
+    app = LayoutApp()
+    async with app.run_test(size=(80, 24)) as pilot:
+        from tests.conftest import MockLLMProvider, MockLLMResponse
+        provider = MockLLMProvider()
+        provider.set_responses([MockLLMResponse(content="先检查配置，再运行测试。")])
+        app.agent_loop = type("Loop", (), {"llm_provider": provider, "state": type("State", (), {"turn_count": 0})()})()
+        app._handle_command(Command.PLAN, "优化配置加载")
+        await pilot.pause()
+        text = " ".join(app.screen.query_one(ChatWidget).child_labels())
+        await pilot.pause()
+        text = " ".join(app.screen.query_one(ChatWidget).child_labels())
+        assert "计划" in text and "优化配置加载" in text and "先检查配置" in text
+        assert provider.last_tools == []

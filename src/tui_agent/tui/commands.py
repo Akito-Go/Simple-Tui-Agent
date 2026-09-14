@@ -13,6 +13,7 @@ class Command(str, Enum):
     STATUS = "/status"
     STOP = "/stop"
     EXIT = "/exit"
+    PLAN = "/plan"
 
 
 @dataclass

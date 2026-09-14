@@ -226,6 +226,9 @@ tui-agent · openai · gpt-4o-mini · 轮次 1/50    就绪
 | `/model` | 列出/切换模型（跨 Provider 会重建客户端） |
 | `/provider` | 查看/切换 `openai_compat` / `anthropic` |
 | `/status` | 查看运行状态 |
+| `/plan <目标>` | 生成执行计划，不修改文件 |
+
+长任务会在状态栏显示阶段、工具进度和已修改文件。
 | `/exit` | 退出（或 Ctrl+C） |
 
 ### 可用工具

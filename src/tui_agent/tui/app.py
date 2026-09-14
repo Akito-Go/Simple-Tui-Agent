@@ -1,6 +1,7 @@
 """Textual App 主类 — 事件绑定、Agent Loop 集成"""
 
 import asyncio
+from contextlib import aclosing
 from pathlib import Path
 
 from textual.app import App
@@ -332,6 +333,7 @@ class TuiAgentApp(App):
   /provider - 查看/切换 LLM Provider（openai_compat / anthropic）
   /status   - 查看运行状态
   /exit     - 退出程序
+  /plan <目标> - 生成执行计划（不修改文件）
 
 🛠 可用工具:
   list_dir    - 列出目录内容
@@ -345,6 +347,19 @@ class TuiAgentApp(App):
 权限确认时可选择「本次会话全部允许」。
 """
             chat.add_system_message(help_text)
+
+        elif command == Command.PLAN:
+            goal = (args or "").strip()
+            if not goal:
+                chat.add_system_message("用法: /plan <任务目标>")
+                return
+            if self._agent_running or self._waiting_confirmation:
+                chat.add_system_message("请先等待当前任务结束，或使用 /stop")
+                return
+            self._agent_running = True
+            self._update_header(status="规划中")
+            chat.add_system_message(f"📋 正在为目标生成计划：{goal}")
+            self._agent_task = asyncio.create_task(self._generate_plan(goal, chat))
 
         elif command == Command.CLEAR:
             if getattr(self, "_selecting_session", False):
@@ -612,6 +627,37 @@ class TuiAgentApp(App):
             input_widget.placeholder = INPUT_PLACEHOLDER
             input_widget.disabled = False
 
+    async def _generate_plan(self, goal: str, chat: ChatWidget) -> None:
+        """调用模型生成只读计划，不写入会话，也不提供工具。"""
+        messages = [
+            {"role": "system", "content": (
+                "你是软件开发计划助手。只输出执行计划，不调用工具、不修改文件。"
+                "用中文回答，包含：目标理解、步骤、涉及文件或范围、风险、验证方式。"
+            )},
+            {"role": "user", "content": goal},
+        ]
+        parts: list[str] = []
+        try:
+            async with aclosing(self.agent_loop.llm_provider.chat(messages, tools=[], stream=True)) as events:
+                async for event in events:
+                    if event["type"] in ("text_delta", "text"):
+                        parts.append(event["content"])
+                    elif event["type"] == "error":
+                        raise RuntimeError(event["message"])
+                    elif event["type"] == "finish":
+                        break
+            chat.add_assistant_message(
+                f"📋 计划（只规划，不执行）\n目标：{goal}\n\n{''.join(parts).strip()}\n\n发送原任务即可开始执行。"
+            )
+        except asyncio.CancelledError:
+            chat.add_system_message("已取消计划生成")
+        except Exception as exc:
+            chat.add_error(f"计划生成失败: {exc}")
+        finally:
+            self._agent_running = False
+            self._agent_task = None
+            self._update_header(status="就绪")
+
     def _show_confirm_widget(self, tool_name: str, summary: str) -> None:
         """在底部输入区上方的独立槽位显示权限确认（与聊天流分离）"""
         screen = self.screen
@@ -650,6 +696,7 @@ class TuiAgentApp(App):
         screen = self.screen
         chat = screen.query_one("#chat", ChatWidget)
         chat.add_user_message(user_input)
+        self._show_task_context(chat, user_input)
         chat.show_thinking()
 
         self._update_header(status="运行中")
@@ -659,6 +706,10 @@ class TuiAgentApp(App):
         self._agent_task = asyncio.create_task(
             self._process_events(self.agent_loop.run(user_input))
         )
+
+    def _show_task_context(self, chat: ChatWidget, goal: str) -> None:
+        """展示当前任务的目标和阶段，避免长任务失去上下文。"""
+        chat.add_system_message(f"任务：{goal}\n阶段：分析 · 进度：0/{self.config.max_turns if self.config else 0} 轮")
 
     def _run_agent_continue(self, confirmed: bool, allow_session: bool = False) -> None:
         """继续 Agent 执行（权限确认后）"""
@@ -724,10 +775,17 @@ class TuiAgentApp(App):
                         "arguments": event.arguments,
                         "auto": is_auto,
                     }
-                    self._update_header(status=f"执行 {event.name}")
+                    self.agent_loop.state.phase = "执行工具"
+                    self.agent_loop.state.total_tools += 1
+                    if event.name in {"write_file", "edit_file"}:
+                        path = event.arguments.get("path")
+                        if path and path not in self.agent_loop.state.changed_files:
+                            self.agent_loop.state.changed_files.append(path)
+                    self._update_header(status=f"执行 {event.name} · {self.agent_loop.state.completed_tools}/{self.agent_loop.state.total_tools}")
                     chat.show_tool_running(event.name, event.arguments)
 
                 elif isinstance(event, ToolCallResult):
+                    self.agent_loop.state.completed_tools += 1
                     if pending_tool:
                         chat.add_tool_result(
                             name=pending_tool["name"],

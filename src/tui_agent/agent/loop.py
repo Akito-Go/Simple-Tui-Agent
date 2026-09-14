@@ -30,6 +30,11 @@ class RunState:
     turn_count: int = 0
     queued: list[dict] = field(default_factory=list)
     compression_failures: int = 0
+    goal: str = ""
+    phase: str = "就绪"
+    completed_tools: int = 0
+    total_tools: int = 0
+    changed_files: list[str] = field(default_factory=list)
 
 
 class AgentLoop:
@@ -64,7 +69,7 @@ class AgentLoop:
             yield AgentError("已有任务运行或等待确认，请先停止当前任务")
             return
         self._busy = True
-        self.state = RunState()
+        self.state = RunState(goal=user_input, phase="分析")
         self.session.close_pending_tools()
         self.session.add_user_message(user_input)
         try:
