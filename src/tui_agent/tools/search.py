@@ -24,6 +24,7 @@ async def run_search(
         if blocked:
             return ToolResult.fail(blocked)
     env = dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
     module_root = str(Path(__file__).resolve().parents[2])
     env["PYTHONPATH"] = module_root + os.pathsep + env.get("PYTHONPATH", "")
     process = await asyncio.create_subprocess_exec(

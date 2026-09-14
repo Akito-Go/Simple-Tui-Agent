@@ -164,7 +164,7 @@ async def test_compress_save_restore_and_continue(runtime):
     save_session(restored)
     again = load_session(str(filepath))
     assert again.messages[-1]["content"] == "after restore"
-    records = [json.loads(line) for line in filepath.read_text().splitlines()]
+    records = [json.loads(line) for line in filepath.read_text(encoding="utf-8").splitlines()]
     assert sum(r.get("content") == "after compression" for r in records) == 1
     assert sum(r.get("content") == "after restore" for r in records) == 1
     assert any(r.get("content") == "history 0" for r in records)
@@ -416,11 +416,6 @@ async def test_actual_tui_confirmation_and_stop(runtime):
     loop, provider, root = runtime
 
     class TestApp(TuiAgentApp):
-        def on_mount(self):
-            from tui_agent.tui.screens import MainScreen
-
-            self.push_screen(MainScreen())
-
         def init_agent(self):
             self.config = AppConfig()
             self.session = loop.session
@@ -442,22 +437,29 @@ async def test_actual_tui_confirmation_and_stop(runtime):
         ]
     )
     async with app.run_test(size=(100, 40)) as pilot:
+        from tui_agent.tui.screens import MainScreen
+
+        assert sum(isinstance(screen, MainScreen) for screen in app.screen_stack) == 1
         app._run_agent("first")
+        await asyncio.wait_for(app._agent_task, timeout=5)
         await pilot.pause()
         assert app._waiting_confirmation and not loop._busy
         assert app.screen.query_one(ConfirmWidget).region.height > 0
         await pilot.press("a")
+        await asyncio.wait_for(app._agent_task, timeout=5)
         await pilot.pause()
         assert (root / "approved").read_text() == "yes"
         assert not app._agent_running
         loop.permission_guard.reset_session_allow_all()
         app._run_agent("second")
+        await asyncio.wait_for(app._agent_task, timeout=5)
         await pilot.pause()
         await pilot.press("escape")
         await pilot.pause()
         assert not app._waiting_confirmation and not app._agent_running
         assert not (root / "cancelled").exists()
         app._run_agent("third")
+        await asyncio.wait_for(app._agent_task, timeout=5)
         await pilot.pause()
         assert not app._agent_running
         assert loop.session.messages[-1]["content"] == "after stop"
@@ -541,27 +543,28 @@ async def test_recursive_glob_preserves_zero_and_multiple_levels(runtime):
     assert "top.py" in shallow.output and "mid.py" not in shallow.output
 
 
-async def test_paginated_read_accumulates_and_invalidates(runtime):
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+async def test_paginated_read_accumulates_and_invalidates(runtime, newline):
     loop, _, root = runtime
     registry = loop.tool_registry
     path = root / "pages.txt"
-    content = "".join(f"line {i}\n" for i in range(700))
-    path.write_text(content)
+    content = "".join(f"line {i}{newline}" for i in range(700))
+    path.write_bytes(content.encode("utf-8"))
     read = registry.get("read_file")
     assert (await read.execute(str(path), start_line=1, end_line=350)).success
     assert (await read.execute(str(path), start_line=351, end_line=700)).success
     # 第一页的编辑证据和两页合并后的完整覆盖都必须有效。
     assert (
-        await registry.get("edit_file").execute(str(path), "line 1\n", "changed\n")
+        await registry.get("edit_file").execute(str(path), f"line 1{newline}", f"changed{newline}")
     ).success
     assert (await registry.get("write_file").execute(str(path), content)).success
-    path.write_text(content + "external\n")
+    path.write_bytes((content + f"external{newline}").encode("utf-8"))
     assert (await read.execute(str(path), start_line=351)).success
     assert not (
         await registry.get("write_file").execute(str(path), "overwrite")
     ).success
     assert not (
-        await registry.get("edit_file").execute(str(path), "line 1\n", "bad")
+        await registry.get("edit_file").execute(str(path), f"line 1{newline}", "bad")
     ).success
 
 
@@ -588,6 +591,7 @@ async def test_disjoint_read_regions_do_not_authorize_unread_content(runtime):
         "文" * 800000 + "TAIL_MARKER",
         "😀" * 600000 + "TAIL_MARKER",
     ],
+    ids=["ascii-output", "chinese-output", "emoji-output"],
 )
 async def test_stored_output_can_be_read_to_end(runtime, content):
     import re

@@ -1,5 +1,6 @@
 """工作区沙箱测试"""
 
+import os
 import pytest
 
 from tui_agent.tools.workspace import (
@@ -72,6 +73,6 @@ class TestWorkspaceTools:
     async def test_shell_defaults_to_workspace(self, workspace):
         (workspace / "marker.txt").write_text("in workspace")
         tool = ShellExecTool()
-        result = await tool.execute(command="pwd")
+        result = await tool.execute(command="cd" if os.name == "nt" else "pwd")
         assert result.success
         assert str(get_workspace_root()) in result.output

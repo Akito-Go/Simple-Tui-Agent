@@ -128,7 +128,7 @@ class TestApiKey:
 TUI_AGENT_API_KEY=sk-after-comment
 
 # 另一个注释
-""")
+""", encoding="utf-8")
 
         load_config(project_root=tmp_path)
         assert get_api_key() == "sk-after-comment"

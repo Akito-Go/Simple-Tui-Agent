@@ -9,6 +9,13 @@ def main():
     import json
     import sys
     from importlib.metadata import version
+
+    # Windows 管道默认可能是 ANSI 编码；CLI 的重定向输出统一使用 UTF-8。
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None and not stream.isatty():
+            reconfigure(encoding="utf-8")
+
     from tui_agent.agent.loop import AgentLoop
     from tui_agent.config.loader import get_api_key, load_config
     from tui_agent.permissions.guard import PermissionGuard

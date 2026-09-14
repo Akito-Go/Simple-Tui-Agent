@@ -196,3 +196,15 @@ async def test_grep_filters_literal_case_and_nested_paths(temp_workspace):
     assert result.success and 'chosen.py' in result.output
     result = await tool.execute('a[b]', glob='*.py', literal=True)
     assert 'chosen.py' not in result.output
+
+
+@pytest.mark.parametrize("encoding", ["cp1252", "gbk"])
+async def test_search_worker_uses_utf8(temp_workspace, monkeypatch, encoding):
+    monkeypatch.setenv("PYTHONIOENCODING", encoding)
+    (temp_workspace / "chinese.txt").write_text("中文内容\n", encoding="utf-8")
+    result = await GrepSearchTool().execute("中文", path=str(temp_workspace))
+    assert result.success, result.error
+    assert "中文内容" in result.output
+    result = await GlobSearchTool().execute(pattern="*.no-such-extension")
+    assert result.success, result.error
+    assert "无匹配" in result.output

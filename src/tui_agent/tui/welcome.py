@@ -50,7 +50,7 @@ def get_app_version() -> str:
     try:
         return version("tui-agent")
     except PackageNotFoundError:
-        return "0.2.0"
+        return "0.2.1"
 
 
 def pick_tip_index(*, seed: str | None = None) -> int:

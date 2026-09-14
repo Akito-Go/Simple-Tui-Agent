@@ -7,7 +7,7 @@
 <p align="center">在终端中用自然语言阅读代码、修改文件、执行开发任务。</p>
 
 <p align="center">
-  <a href="pyproject.toml"><img src="https://img.shields.io/badge/version-0.2.0-blue" alt="Version 0.2.0" /></a>
+  <a href="pyproject.toml"><img src="https://img.shields.io/badge/version-0.2.1-blue" alt="Version 0.2.1" /></a>
   <a href="#快速开始"><img src="https://img.shields.io/badge/Python-3.11%2B-blue" alt="Python 3.11+" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License MIT" /></a>
 </p>
@@ -115,6 +115,8 @@ sta --prompt "检查项目测试" --json
 
 `--prompt` 直接执行任务，`--json` 输出结构化结果。写入和 Shell 默认不会自动批准；需要自动批准时显式添加 `--yes`。
 
+命令行输出重定向到文件或管道时统一使用 UTF-8，包含帮助和错误提示；脚本读取输出时也应指定 UTF-8，避免 Windows 默认编码导致中文报错或乱码。
+
 ## 数据与边界
 
 - 会话与检查点保存在工作区的 `.tui-agent/`，已被本仓库的 Git 忽略规则排除。
@@ -125,6 +127,13 @@ sta --prompt "检查项目测试" --json
 - Shell 使用当前用户的系统权限，工作区限制不是系统沙箱。
 
 完整快捷键、限制与故障排查见 [界面使用指南](docs/ui-guide.md) 和 [Runtime 说明](docs/runtime-improvements.md)。
+
+## 0.2.1 更新
+
+- 修复 Windows 下 CLI 与搜索子进程的中文输出编码，重定向输出统一使用 UTF-8。
+- 修复测试环境隔离破坏 Windows 环境变量大小写兼容和子进程继承的问题。
+- 修正测试文件编码、LF / CRLF 换行假设及确认框测试的重复挂载与异步等待。
+- 缩短大文本参数用例名称，避免 Windows 环境变量超限及 CI 日志被截断。
 
 ## 0.2.0 更新
 
@@ -162,6 +171,8 @@ Windows 使用 `python -m venv .venv`，PowerShell 激活命令为 `.venv\Script
 也可以在源码目录执行 `uv tool install --python 3.12 .` 试用当前代码，无需激活环境；这是普通安装，后续修改源码需重新执行 `uv tool install --force --python 3.12 .`。
 
 测试默认隔离工作区、用户目录和模型环境变量，会话日志、检查点及配置不会写入真实用户目录。
+
+大文本参数测试使用短用例名，避免超出 Windows 环境变量长度限制并导致 CI 日志被截断。CLI 与搜索子进程覆盖非 UTF-8 输出环境，分页编辑覆盖 LF / CRLF；测试隔离保留 Windows 环境变量的大小写兼容与子进程继承行为。
 
 项目使用 Python、Textual、OpenAI／Anthropic SDK，自行实现 Agent 循环、工具与会话管理。模块说明见 [架构文档](docs/architecture.md)。
 
