@@ -37,7 +37,7 @@ def make_agent(mock_provider: MockLLMProvider) -> AgentLoop:
 
 class TestAgentLoopText:
     @pytest.mark.asyncio
-    async def test_simple_text_response(self, mock_llm_provider):
+    async def test_simple_text_response(self, mock_llm_provider, tmp_path):
         """测试纯文本回复"""
         mock_llm_provider.set_responses([
             MockLLMResponse(content="你好！有什么可以帮助你的？"),
@@ -51,6 +51,18 @@ class TestAgentLoopText:
         # 应该有 TextDelta 和 AgentFinished
         assert any(isinstance(e, TextDelta) for e in events)
         assert any(isinstance(e, AgentFinished) for e in events)
+
+        # 默认 Agent 的持久化也必须落在临时工作区，无需用例手动 chdir。
+        from tui_agent.session.loader import list_sessions
+        from tui_agent.session.checkpoint import Checkpoint
+
+        log = tmp_path / ".tui-agent" / "logs" / f"{agent.session.session_id}.jsonl"
+        assert log.is_file()
+        assert any(s["session_id"] == agent.session.session_id for s in list_sessions())
+        checkpoints = Checkpoint.recent()
+        assert len(checkpoints) == 1
+        assert checkpoints[0].root == tmp_path.resolve()
+        assert checkpoints[0].data["session_id"] == agent.session.session_id
 
     @pytest.mark.asyncio
     async def test_text_delta_streaming(self, mock_llm_provider):

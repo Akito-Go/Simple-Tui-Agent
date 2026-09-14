@@ -62,10 +62,11 @@ class MockLLMProvider(LLMProvider):
 
 
 @pytest.fixture(autouse=True)
-def _reset_workspace_root():
-    """每个测试前后重置工作区，避免用例间污染"""
+def _isolate_workspace(tmp_path, monkeypatch):
+    """隔离 cwd 和工具工作区，防止日志、检查点写入真实项目。"""
     from tui_agent.tools.workspace import reset_workspace_root
 
+    monkeypatch.chdir(tmp_path)
     reset_workspace_root()
     yield
     reset_workspace_root()
