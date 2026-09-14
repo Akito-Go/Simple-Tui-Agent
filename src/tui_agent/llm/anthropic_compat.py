@@ -11,6 +11,7 @@ from anthropic import AsyncAnthropic
 
 from .provider import LLMProvider
 from .retry import with_retry
+from .errors import format_llm_error
 
 ANTHROPIC_DEFAULT_BASE = "https://api.anthropic.com"
 
@@ -133,7 +134,7 @@ class AnthropicProvider(LLMProvider):
         except TimeoutError:
             yield {"type": "error", "message": f"LLM 请求超时 ({self.timeout}s)"}
         except Exception as e:
-            yield {"type": "error", "message": f"LLM 请求失败: {str(e)}"}
+            yield {"type": "error", "message": format_llm_error(e)}
 
     async def _do_chat(
         self,

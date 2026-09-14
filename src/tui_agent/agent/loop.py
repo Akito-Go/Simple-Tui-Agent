@@ -17,6 +17,7 @@ from .types import (
     AgentEvent,
 )
 from ..llm.provider import LLMProvider
+from ..llm.errors import format_llm_error
 from ..tools.registry import ToolRegistry
 from ..permissions.guard import PermissionGuard, ToolCall
 from ..permissions.policy import PermissionDecision
@@ -212,7 +213,7 @@ class AgentLoop:
                 )
                 self._save("failed", "失败")
                 yield AgentError(message)
-                yield AgentFinished(message)
+                yield AgentFinished("")
                 return
 
             text_buffer: list[str] = []
@@ -238,13 +239,13 @@ class AgentLoop:
                     self.session.add_assistant_message("".join(text_buffer))
                 raise
             except Exception as exc:
-                message = f"LLM 请求失败: {exc}"
+                message = format_llm_error(exc)
                 self.session.add_assistant_message(
                     "".join(text_buffer) + f"\n[错误] {message}"
                 )
                 self._save("failed", "失败")
                 yield AgentError(message)
-                yield AgentFinished(f"因错误终止: {message}")
+                yield AgentFinished("")
                 return
 
             self.session.add_assistant_message(

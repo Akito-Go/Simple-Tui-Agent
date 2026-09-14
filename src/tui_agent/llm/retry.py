@@ -15,11 +15,7 @@ T = TypeVar("T")
 RETRYABLE_ERRORS = (
     OpenAIConnectionError,
     AnthropicConnectionError,
-    asyncio.TimeoutError,
-    ConnectionError,
-    ConnectionRefusedError,
-    ConnectionResetError,
-    TimeoutError,
+    # Python 3.11+ 中，超时和内置连接异常均属于 OSError。
     OSError,
 )
 
@@ -41,7 +37,7 @@ def is_retryable(error: Exception) -> bool:
     """判断错误是否可重试（网络/超时/429/5xx；不含认证等 4xx）"""
     status = _extract_status_code(error)
     if status is not None:
-        if status in (408, 429, 500, 502, 503, 504):
+        if status in (408, 429) or 500 <= status < 600:
             return True
         if 400 <= status < 500:
             return False
