@@ -338,3 +338,11 @@ CI 已纳入仓库，对 Python 3.11 / 3.12 及 Linux、macOS、Windows 运行�
 ## License
 
 MIT
+
+### 非交互模式
+
+```bash
+python -m tui_agent --prompt "检查项目测试" --json
+```
+
+`--json` 输出结构化结果；写入或 Shell 默认不会自动批准，自动化场景需显式添加 `--yes`。输入框按 `Tab` 可补全命令、工具名和模型。

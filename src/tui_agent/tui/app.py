@@ -69,6 +69,13 @@ class TuiAgentApp(App):
         """Esc 快捷键：终止当前 Agent / 取消待确认操作"""
         self._handle_command(Command.STOP, "")
 
+    def completion_candidates(self) -> list[str]:
+        """返回当前可补全的命令、工具和模型。"""
+        commands = [command.value for command in Command]
+        tools = list(self.agent_loop.tool_registry._tools) if self.agent_loop else []
+        models = self.config.available_models if self.config else []
+        return commands + tools + models
+
     def _update_header(self, status: str = "就绪") -> None:
         """刷新底部状态行（含 provider）"""
         if self.config is None:
@@ -865,5 +872,6 @@ class TuiAgentApp(App):
         pending = list(getattr(self, "_provider_cleanup_tasks", ()))
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
-        if self.agent_loop is not None:
-            await self.agent_loop.llm_provider.aclose()
+        provider = getattr(self.agent_loop, "llm_provider", None)
+        if provider is not None and hasattr(provider, "aclose"):
+            await provider.aclose()

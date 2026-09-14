@@ -48,6 +48,13 @@ class MainScreen(Screen):
         padding: 0;
     }
 
+    #completion-popup {
+        height: 1;
+        color: #a9a39a;
+        background: #24211e;
+        padding: 0 1;
+    }
+
     /* height=3：上下细线各占 1 行，中间留给 > 与输入（height:1 会被边框吃光） */
     #input-wrap {
         height: 3;
@@ -216,6 +223,7 @@ class MainScreen(Screen):
         # 正常纵向布局：聊天占余量，底部操作区和状态行各占独立空间。
         yield ChatWidget()
         with Container(id="input-container"):
+            yield Static("", id="completion-popup", markup=False)
             yield Container(id="confirm-slot")
             with Horizontal(id="input-wrap"):
                 yield Static(">", id="input-prompt", markup=False)
@@ -231,6 +239,7 @@ class MainScreen(Screen):
     def on_mount(self) -> None:
         """Screen 挂载后通知 App 初始化 Agent"""
         self.app.init_agent()
+        self.call_after_refresh(lambda: self.query_one("#input", InputWidget).focus())
 
     def on_resize(self, event: events.Resize) -> None:
         self.set_class(event.size.width < 76, "narrow")

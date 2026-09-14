@@ -69,18 +69,29 @@ async def test_tool_details_keyboard_toggle_and_error_state():
         assert failed.has_class("tool-failed")
         assert "useful diagnosis" in str(failed.content)
 
+
 async def test_plan_command_only_shows_plan():
     from tui_agent.tui.commands import Command
+    from tests.conftest import MockLLMProvider, MockLLMResponse
     app = LayoutApp()
     async with app.run_test(size=(80, 24)) as pilot:
-        from tests.conftest import MockLLMProvider, MockLLMResponse
-        provider = MockLLMProvider()
-        provider.set_responses([MockLLMResponse(content="先检查配置，再运行测试。")])
+        provider = MockLLMProvider(); provider.set_responses([MockLLMResponse(content="先检查配置，再运行测试。")])
         app.agent_loop = type("Loop", (), {"llm_provider": provider, "state": type("State", (), {"turn_count": 0})()})()
         app._handle_command(Command.PLAN, "优化配置加载")
         await pilot.pause()
         text = " ".join(app.screen.query_one(ChatWidget).child_labels())
-        await pilot.pause()
-        text = " ".join(app.screen.query_one(ChatWidget).child_labels())
         assert "计划" in text and "优化配置加载" in text and "先检查配置" in text
         assert provider.last_tools == []
+
+async def test_input_completion_popup_and_focus():
+    from textual.widgets import Static
+    app = LayoutApp(); app.config = type("Config", (), {"available_models": ["demo-model"]})()
+    app.agent_loop = type("Loop", (), {"state": type("State", (), {"turn_count": 0})(), "tool_registry": type("Registry", (), {"_tools": {"read_file": object()}})(), "llm_provider": type("P", (), {"aclose": lambda self: __import__('asyncio').sleep(0)})()})()
+    async with app.run_test(size=(80, 24)) as pilot:
+        field = app.screen.query_one(InputWidget); field.focus(); await pilot.pause()
+        assert app.focused is field
+        field.value = "/p"; await pilot.pause()
+        popup = app.screen.query_one("#completion-popup", Static)
+        assert "/plan" in str(popup.content)
+        await pilot.press("tab")
+        assert app.focused is field and field.value == "/plan"
