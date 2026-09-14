@@ -95,3 +95,25 @@ async def test_input_completion_popup_and_focus():
         assert "/plan" in str(popup.content)
         await pilot.press("tab")
         assert app.focused is field and field.value == "/plan"
+
+
+async def test_file_commands_show_checkpoint_report(tmp_path, monkeypatch):
+    from tui_agent.session.checkpoint import Checkpoint
+    from tui_agent.tools.workspace import set_workspace_root
+    from tui_agent.tools.file_state import tracked_write
+    from tui_agent.tui.commands import Command, parse_command
+    monkeypatch.chdir(tmp_path)
+    set_workspace_root(tmp_path)
+    cp = Checkpoint.create('create file')
+    tracked_write(tmp_path / 'demo.txt', 'hello\n', type('State', (), {'checkpoint': cp})())
+    app = LayoutApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        app.agent_loop = type('Loop', (), {'checkpoint': cp})()
+        app._handle_command(Command.FILES, '')
+        app._handle_command(Command.DIFF, 'demo.txt')
+        await pilot.pause()
+        text = ' '.join(app.screen.query_one(ChatWidget).child_labels())
+        assert '新增 demo.txt' in text and '+hello' in text
+        assert parse_command('/diff demo.txt').command == Command.DIFF
+        assert parse_command('/files').command == Command.FILES
+        app.agent_loop = None

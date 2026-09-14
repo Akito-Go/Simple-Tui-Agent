@@ -10,6 +10,7 @@ import time
 from uuid import uuid4
 
 from ..tools.file_state import atomic_write, read_bytes
+from ..tools.changes import text_change
 from ..tools.workspace import get_workspace_root
 
 RESUMABLE = {"running", "waiting", "interrupted", "failed", "limit"}
@@ -188,6 +189,57 @@ class Checkpoint:
 
     def fingerprint(self) -> str:
         return hashlib.sha256(self.path.read_bytes()).hexdigest()
+
+    def file_changes(self) -> list[dict]:
+        """比较任务起点与记录结果；外部变化只标注，不归入任务统计。"""
+        changes = []
+        for relative, entry in self.data["files"].items():
+            note = ""
+            current = None
+            readable = True
+            try:
+                current = snapshot(self.file_path(relative))
+            except (OSError, ValueError) as exc:
+                readable = False
+                note = f"无法核对：{exc}"
+            after = entry["after"]
+            if entry.get("pending"):
+                if readable:
+                    after = self._expected(entry, current)
+                else:
+                    after = entry.get("previous")
+                note = "写入结果待核实" + (f"；{note}" if note else "")
+            if readable and current != self._expected(entry, current):
+                note = "文件已被后续修改或删除；展示任务记录结果"
+            before = entry["before"]
+            if before == after:
+                continue
+            old = base64.b64decode(before["data"]).decode("utf-8") if before else ""
+            new = base64.b64decode(after["data"]).decode("utf-8") if after else ""
+            added, removed, diff = text_change(relative, old, new)
+            kind = "新增" if before is None else "修改"
+            if before and after and before["mode"] != after["mode"]:
+                diff += f"\n权限：{before['mode']:03o} → {after['mode']:03o}"
+            changes.append(dict(path=relative, kind=kind, added=added, removed=removed,
+                                diff=diff or "空文件新增", note=note))
+        return changes
+
+    def change_report(self, *, diff: bool = False, path: str = "") -> str:
+        from ..tools.output import truncate
+
+        changes = self.file_changes()
+        if path:
+            relative = str(self.file_path(path).relative_to(self.root))
+            changes = [item for item in changes if item["path"] == relative]
+        if not changes:
+            return "当前任务暂无匹配的文件净变更（仅统计文件工具，Shell 不在范围内）。"
+        lines = [f"任务文件变更：{len(changes)} 个文件，+{sum(c['added'] for c in changes)} / -{sum(c['removed'] for c in changes)} 行"]
+        for item in changes:
+            lines.append(f"{item['kind']} {item['path']}  +{item['added']} / -{item['removed']}" + (f" · {item['note']}" if item['note'] else ""))
+            if diff:
+                lines.append(truncate(item["diff"], 12000))
+        lines.append("以本任务起点和记录结果比较；不含 Shell 修改。/diff [路径] 查看差异，/files 查看列表。")
+        return truncate("\n".join(lines), 48000)
 
     def undo_preview(self) -> list[str]:
         if self.data["status"] == "undone":

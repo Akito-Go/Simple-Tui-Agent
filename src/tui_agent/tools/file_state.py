@@ -1,6 +1,5 @@
 """每个工具注册表独立的已读状态与原子写入。"""
 
-import difflib
 import hashlib
 import os
 import tempfile
@@ -9,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .workspace import resolve_in_workspace
+from .changes import text_change
 
 MAX_FILE_BYTES = 2_000_000
 
@@ -99,23 +99,20 @@ def preview_change(name: str, arguments: dict) -> str:
         return error or "路径无效"
     try:
         old = read_bytes(path).decode("utf-8") if path.exists() else ""
+        if name == "edit_file" and (
+            not arguments["old_string"] or old.count(arguments["old_string"]) != 1
+        ):
+            return f"文件：{path}\n无法预览：旧内容必须非空且唯一匹配，执行时仍会校验文件状态。"
         new = (
             arguments["content"]
             if name == "write_file"
             else old.replace(arguments["old_string"], arguments["new_string"], 1)
         )
-        diff = "\n".join(
-            difflib.unified_diff(
-                old.splitlines(),
-                new.splitlines(),
-                fromfile=str(path),
-                tofile=str(path),
-                lineterm="",
-            )
-        )
+        added, removed, diff = text_change(str(path), old, new)
+        operation = "新增" if not path.exists() else ("覆盖" if name == "write_file" else "修改")
         from .output import truncate
 
-        return truncate(diff or f"文件无变化: {path}", 2400)
+        return f"文件列表（1）：\n  {operation}：{path}\n预计影响：+{added} / -{removed} 行（执行时仍会校验）\n" + truncate(diff or "文本内容无变化", 2400)
     except (OSError, ValueError, UnicodeError) as exc:
         return f"文件: {path}\n无法预览: {exc}"
 

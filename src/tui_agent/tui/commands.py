@@ -16,6 +16,8 @@ class Command(str, Enum):
     PLAN = "/plan"
     RESUME = "/resume"
     UNDO = "/undo"
+    DIFF = "/diff"
+    FILES = "/files"
 
 
 @dataclass

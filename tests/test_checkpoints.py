@@ -381,3 +381,55 @@ async def test_tui_resume_updates_current_session(task):
         assert not app._agent_running
         assert app.session is loop.session and app.session is not previous_session
         assert "resumed answer" in " ".join(app.screen.query_one(ChatWidget).child_labels())
+
+
+def test_file_change_report_net_changes_and_external_edits(task):
+    from tui_agent.tools.file_state import tracked_write
+    loop, _, root = task
+    cp = Checkpoint.create('edit')
+    state = type('State', (), {'checkpoint': cp})()
+    path = root / 'demo.txt'
+    path.write_text('before\n')
+    tracked_write(path, 'middle\n', state)
+    tracked_write(path, 'after\nextra\n', state)
+    changes = cp.file_changes()
+    assert len(changes) == 1
+    assert (changes[0]['added'], changes[0]['removed']) == (2, 1)
+    assert '-before' in cp.change_report(diff=True)
+    assert '+after' in cp.change_report(diff=True, path='./demo.txt')
+    path.write_text('manual\n')
+    assert '后续修改' in cp.change_report()
+    assert '+manual' not in cp.change_report(diff=True)
+    with pytest.raises(ValueError):
+        cp.change_report(path='../outside')
+
+
+def test_file_change_report_empty_pending_and_reverted(task):
+    from tui_agent.tools.file_state import tracked_write
+    _, _, root = task
+    cp = Checkpoint.create('edit')
+    state = type('State', (), {'checkpoint': cp})()
+    path = root / 'new.txt'
+    cp.prepare_write(path, 'not written')
+    assert cp.file_changes() == []
+    tracked_write(path, '', state)
+    assert cp.file_changes()[0]['kind'] == '新增'
+    assert '空文件新增' in cp.change_report(diff=True)
+    existing = root / 'existing.txt'
+    existing.write_text('original\n')
+    tracked_write(existing, 'changed\n', state)
+    tracked_write(existing, 'original\n', state)
+    assert len(cp.file_changes()) == 1
+
+
+def test_permission_preview_impact_and_invalid_match(task):
+    from tui_agent.tools.file_state import preview_change
+    loop, _, root = task
+    (root / 'demo.txt').write_text('old\n')
+    preview = preview_change('write_file', {'path': 'demo.txt', 'content': 'new\n'})
+    assert '覆盖' in preview and '+1 / -1' in preview
+    assert '-old' in preview and '+new' in preview
+    preview = preview_change('edit_file', {'path': 'demo.txt', 'old_string': '', 'new_string': 'x'})
+    assert '无法预览' in preview
+    shell = loop._format_tool_summary('shell_exec', {'command': 'pwd'})
+    assert str(root) in shell and '文件影响未追踪' in shell

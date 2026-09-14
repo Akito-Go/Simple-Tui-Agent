@@ -308,7 +308,9 @@ class AgentLoop:
 
     def _format_tool_summary(self, name: str, arguments: dict) -> str:
         if name == "shell_exec":
-            return f"在本机执行命令（受当前用户系统权限约束）: {arguments['command']}"
+            from ..tools.workspace import get_workspace_root
+
+            return f"在本机执行命令（受当前用户系统权限约束）: {arguments['command']}\n工作目录：{arguments.get('cwd') or get_workspace_root()}\n文件影响未追踪；Shell 修改不计入文件统计，也不支持自动撤销。"
         if name in ("write_file", "edit_file"):
             from ..tools.file_state import preview_change
 

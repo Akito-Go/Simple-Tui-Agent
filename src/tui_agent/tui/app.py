@@ -349,6 +349,8 @@ class TuiAgentApp(App):
   /resume [检查点ID] - 列出或继续未完成任务
   /undo [检查点ID] - 预览撤销文件修改；/undo list 列出检查点
   /undo confirm - 确认已预览的撤销；/undo cancel 取消
+  /files    - 查看当前任务文件列表与净变更统计
+  /diff [路径] - 查看当前任务全部或指定文件差异
 
 🛠 可用工具:
   list_dir    - 列出目录内容
@@ -375,6 +377,18 @@ class TuiAgentApp(App):
             self._update_header(status="规划中")
             chat.add_system_message(f"📋 正在为目标生成计划：{goal}")
             self._agent_task = asyncio.create_task(self._generate_plan(goal, chat))
+
+        elif command in (Command.FILES, Command.DIFF):
+            checkpoint = getattr(self.agent_loop, "checkpoint", None)
+            if command == Command.FILES and args.strip():
+                chat.add_system_message("用法：/files；按文件查看差异请用 /diff <路径>")
+            elif checkpoint is None:
+                chat.add_system_message("当前没有任务检查点。执行任务或使用 /resume 后可查看文件变更。")
+            else:
+                try:
+                    chat.add_system_message(checkpoint.change_report(diff=command == Command.DIFF, path=args.strip()))
+                except (OSError, ValueError) as exc:
+                    chat.add_error(f"无法查看文件变更：{exc}")
 
         elif command in (Command.RESUME, Command.UNDO):
             self._handle_checkpoint_command(command, args.strip(), chat)
@@ -915,6 +929,9 @@ class TuiAgentApp(App):
                         chat.finish_streaming()
                     elif event.message:
                         chat.add_assistant_message(event.message)
+                    checkpoint = getattr(self.agent_loop, "checkpoint", None)
+                    if checkpoint and checkpoint.data["files"]:
+                        chat.add_system_message(checkpoint.change_report())
                     self._update_header(status="就绪")
                     self._agent_running = False
 
