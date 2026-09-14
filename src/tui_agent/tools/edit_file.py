@@ -1,7 +1,7 @@
 """精确编辑：拒绝空匹配、歧义匹配与过期文件。"""
 
 from .base import ToolBase, ToolResult, PermissionLevel
-from .file_state import FileStateCache, atomic_write, read_bytes
+from .file_state import FileStateCache, tracked_write, read_bytes
 from .workspace import resolve_in_workspace
 
 
@@ -41,7 +41,7 @@ class EditFileTool(ToolBase):
                     else f"匹配到 {count} 处，请提供更多上下文以唯一定位"
                 )
             new_content = content.replace(old_string, new_string, 1)
-            atomic_write(p, new_content)
+            tracked_write(p, new_content, self.state)
             if self.state is not None:
                 previous = self.state.entries[p]
                 position = content.index(old_string)

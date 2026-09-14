@@ -14,6 +14,8 @@ class Command(str, Enum):
     STOP = "/stop"
     EXIT = "/exit"
     PLAN = "/plan"
+    RESUME = "/resume"
+    UNDO = "/undo"
 
 
 @dataclass

@@ -222,14 +222,20 @@ tui-agent · openai · gpt-4o-mini · 轮次 1/50    就绪
 | `/help` | 显示帮助和可用工具 |
 | `/clear` | 清空当前会话 |
 | `/sessions` | 列出/恢复历史会话（`/sessions <序号>` 直接恢复） |
+| `/resume [检查点ID]` | 列出未完成任务，或核对现状后继续指定任务 |
+| `/undo [检查点ID]` | 预览撤销指定任务的文件修改；省略 ID 选择最近有文件记录的检查点 |
+| `/undo list` | 列出最近的文件检查点 |
+| `/undo confirm` / `/undo cancel` | 确认已预览的撤销 / 取消预览 |
 | `/stop` | 停止当前 Agent 运行（快捷键 `Esc`） |
 | `/model` | 列出/切换模型（跨 Provider 会重建客户端） |
 | `/provider` | 查看/切换 `openai_compat` / `anthropic` |
 | `/status` | 查看运行状态 |
 | `/plan <目标>` | 生成执行计划，不修改文件 |
+| `/exit` | 退出（或 Ctrl+C） |
 
 长任务会在状态栏显示阶段、工具进度和已修改文件。
-| `/exit` | 退出（或 Ctrl+C） |
+
+任务检查点自动保存在 `.tui-agent/checkpoints/`。`/resume` 创建新的续接会话与检查点，保留旧历史，重新判断剩余工作并确认新操作。`/undo` 只恢复 `write_file` / `edit_file` 的文件内容和权限；有后续修改时报告冲突，Shell 副作用不在撤销范围。具体操作和限制见 [任务恢复与撤销](docs/ui-guide.md#任务检查点恢复与撤销)。
 
 ### 可用工具
 

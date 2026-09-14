@@ -614,3 +614,10 @@ def mock_llm_provider():
 - [x] 文件工具路径边界与 Shell 工作目录校验（无系统隔离）
 
 运行时执行、保存、压缩及工具资源边界的最新细节见 [Runtime 改造说明](runtime-improvements.md)。
+
+
+### 任务检查点与撤销
+
+新增 `session/checkpoint.py`，由 AgentLoop 保存任务生命周期与对话快照，由内置文件工具的 `tracked_write` 保存写入前后内容。检查点独立于 JSONL 会话历史；恢复会创建新会话和新的续接检查点，不恢复运行中的 Python 栈或自动重放 Shell。
+
+TUI 提供 `/resume`、`/undo`、`/undo list`、`/undo confirm`、`/undo cancel`。撤销预览与实际恢复都检查当前文件，后续修改导致冲突；磁盘失败后的部分恢复可重试。支持范围见 [UI 使用说明](ui-guide.md#任务检查点恢复与撤销)。

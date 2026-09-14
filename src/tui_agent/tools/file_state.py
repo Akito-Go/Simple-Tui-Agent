@@ -33,6 +33,7 @@ class ReadState:
 class FileStateCache:
     def __init__(self):
         self.entries: OrderedDict[Path, ReadState] = OrderedDict()
+        self.checkpoint = None
 
     def clear(self):
         self.entries.clear()
@@ -117,3 +118,13 @@ def preview_change(name: str, arguments: dict) -> str:
         return truncate(diff or f"文件无变化: {path}", 2400)
     except (OSError, ValueError, UnicodeError) as exc:
         return f"文件: {path}\n无法预览: {exc}"
+
+
+def tracked_write(path: Path, content: str, state: FileStateCache | None):
+    """写前持久化恢复材料，写后记录实际结果。"""
+    checkpoint = state.checkpoint if state else None
+    if checkpoint:
+        checkpoint.prepare_write(path, content)
+    atomic_write(path, content)
+    if checkpoint:
+        checkpoint.finish_write(path)

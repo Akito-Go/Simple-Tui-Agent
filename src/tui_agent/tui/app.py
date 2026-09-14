@@ -64,9 +64,14 @@ class TuiAgentApp(App):
         self._stop_requested: bool = False
         self._agent_task: asyncio.Task | None = None
         self._welcome_shown: bool = False
+        self._pending_undo = None
 
     def action_stop_agent(self) -> None:
         """Esc 快捷键：终止当前 Agent / 取消待确认操作"""
+        if self._pending_undo is not None:
+            self._pending_undo = None
+            self.screen.query_one(ChatWidget).add_system_message("已取消撤销预览")
+            return
         self._handle_command(Command.STOP, "")
 
     def completion_candidates(self) -> list[str]:
@@ -341,6 +346,9 @@ class TuiAgentApp(App):
   /status   - 查看运行状态
   /exit     - 退出程序
   /plan <目标> - 生成执行计划（不修改文件）
+  /resume [检查点ID] - 列出或继续未完成任务
+  /undo [检查点ID] - 预览撤销文件修改；/undo list 列出检查点
+  /undo confirm - 确认已预览的撤销；/undo cancel 取消
 
 🛠 可用工具:
   list_dir    - 列出目录内容
@@ -368,7 +376,14 @@ class TuiAgentApp(App):
             chat.add_system_message(f"📋 正在为目标生成计划：{goal}")
             self._agent_task = asyncio.create_task(self._generate_plan(goal, chat))
 
+        elif command in (Command.RESUME, Command.UNDO):
+            self._handle_checkpoint_command(command, args.strip(), chat)
+
         elif command == Command.CLEAR:
+            self._pending_undo = None
+            if self._agent_running or self._waiting_confirmation:
+                chat.add_system_message("请先停止当前任务")
+                return
             if getattr(self, "_selecting_session", False):
                 self._selecting_session = False
                 self._pending_sessions = []
@@ -376,9 +391,11 @@ class TuiAgentApp(App):
                 self.session.clear()
             if self.agent_loop is not None:
                 self.agent_loop.permission_guard.reset_session_allow_all()
+                self.agent_loop.checkpoint = None
                 state = getattr(self.agent_loop.tool_registry, "file_state", None)
                 if state is not None:
                     state.clear()
+                    state.checkpoint = None
             chat.clear()
             from ..session.loader import list_sessions
 
@@ -492,6 +509,72 @@ class TuiAgentApp(App):
 
                 save_session(self.session)
             self.exit()
+
+    def _handle_checkpoint_command(self, command, args, chat):
+        from ..session.checkpoint import Checkpoint, RESUMABLE
+        if self.agent_loop is None:
+            chat.add_error("Agent 未初始化")
+            return
+        if self._agent_running or self._waiting_confirmation:
+            chat.add_system_message("请先等待当前任务结束，或使用 /stop")
+            return
+        try:
+            if command == Command.RESUME:
+                self._pending_undo = None
+                if not args:
+                    tasks = [cp for cp in Checkpoint.recent() if cp.data["status"] in RESUMABLE]
+                    lines = [f"{cp.data['id']} · {cp.data['phase']} · {cp.data['goal']}" for cp in tasks[:10]]
+                    chat.add_system_message("未完成任务（最近 10 项）：\n" + "\n".join(lines) + "\n使用 /resume <检查点ID> 继续" if lines else "暂无可恢复任务")
+                    return
+                checkpoint = Checkpoint.load(args)
+                if checkpoint.data["status"] not in RESUMABLE:
+                    raise ValueError("该任务不能恢复；使用 /resume 查看未完成任务")
+                chat.add_system_message("恢复目标：" + checkpoint.data["goal"] + "\n" + "\n".join(checkpoint.inspect_files()))
+                self._agent_running = True
+                self._stop_requested = False
+                self._update_header(status="恢复中")
+                self._agent_task = asyncio.create_task(self._process_events(self.agent_loop.resume(args)))
+                return
+            if args == "cancel":
+                self._pending_undo = None
+                chat.add_system_message("已取消撤销预览")
+                return
+            if args == "confirm":
+                if self._pending_undo is None:
+                    raise ValueError("请先使用 /undo 预览修改文件")
+                checkpoint_id, fingerprint = self._pending_undo
+                self._pending_undo = None
+                checkpoint = Checkpoint.load(checkpoint_id)
+                changes = checkpoint.undo(fingerprint)
+                file_state = getattr(self.agent_loop.tool_registry, "file_state", None)
+                if file_state is not None:
+                    file_state.clear()
+                    file_state.checkpoint = None
+                if self.agent_loop.checkpoint and self.agent_loop.checkpoint.data["id"] == checkpoint_id:
+                    self.agent_loop.checkpoint = None
+                notice = "已撤销检查点 " + checkpoint_id + " 的文件修改：" + ", ".join(changes) + "。此前工具结果为历史记录，请重新读取现状。"
+                self.session.add_user_message(notice)
+                from ..session.storage import save_session
+                save_session(self.session)
+                chat.add_system_message(notice)
+                return
+            self._pending_undo = None
+            tasks = [cp for cp in Checkpoint.recent() if cp.data["files"] and cp.data["status"] != "undone"]
+            if args == "list":
+                lines = [f"{cp.data['id']} · {cp.data['goal']} · {len(cp.data['files'])} 个记录文件" for cp in tasks[:10]]
+                chat.add_system_message("文件检查点（最近 10 项）：\n" + "\n".join(lines) if lines else "暂无文件检查点")
+                return
+            checkpoint = Checkpoint.load(args) if args else (tasks[0] if tasks else None)
+            if checkpoint is None:
+                raise ValueError("暂无可撤销的文件修改")
+            changes = checkpoint.undo_preview()
+            if not changes:
+                raise ValueError("该检查点没有需要恢复的文件")
+            self._pending_undo = (checkpoint.data["id"], checkpoint.fingerprint())
+            lines = [f"{'删除新建文件' if checkpoint.data['files'][p]['before'] is None else '恢复原内容和权限'}：{p}" for p in changes]
+            chat.add_system_message(f"撤销预览 · {checkpoint.data['id']}\n目标：{checkpoint.data['goal']}\n" + "\n".join(lines) + "\nShell 操作不在撤销范围。输入 /undo confirm 确认，/undo cancel 或 Esc 取消。")
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            chat.add_error(f"检查点操作失败: {exc}")
 
     def _rebuild_llm_provider(self, candidate) -> None:
         """候选客户端构建成功后再一次性提交配置。"""
@@ -702,6 +785,7 @@ class TuiAgentApp(App):
 
         screen = self.screen
         chat = screen.query_one("#chat", ChatWidget)
+        self._pending_undo = None
         chat.add_user_message(user_input)
         self._show_task_context(chat, user_input)
         chat.show_thinking()
@@ -764,6 +848,7 @@ class TuiAgentApp(App):
 
         try:
             async for event in events:
+                self.session = self.agent_loop.session
                 # 协作式 stop：若 cancel 未立刻打断 await，则在事件边界退出
                 if self._stop_requested:
                     self._finalize_stopped(chat)

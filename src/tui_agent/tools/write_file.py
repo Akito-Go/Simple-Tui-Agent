@@ -1,7 +1,7 @@
 """文件写入：已读状态校验与原子替换。"""
 
 from .base import ToolBase, ToolResult, PermissionLevel
-from .file_state import FileStateCache, atomic_write, read_bytes
+from .file_state import FileStateCache, tracked_write, read_bytes
 from .workspace import resolve_in_workspace
 
 
@@ -29,7 +29,7 @@ class WriteFileTool(ToolBase):
             exists = p.exists()
             if exists and self.state is not None:
                 self.state.validate(p, read_bytes(p))
-            atomic_write(p, content)
+            tracked_write(p, content, self.state)
             if self.state is not None:
                 self.state.record(p, content.encode(), content, True)
             return ToolResult.ok(f"已{'覆盖' if exists else '创建'}文件: {path}")
