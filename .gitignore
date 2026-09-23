@@ -11,6 +11,7 @@ build/
 .idea/
 .vscode/
 .cursor/
+.codex/
 
 # 环境配置（含 API Key）
 .env
@@ -33,3 +34,5 @@ openspec/
 # 考核与评审文档（本地）
 docs/ai-audit-report.md
 docs/review-report.md
+
+openspec/
