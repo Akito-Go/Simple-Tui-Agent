@@ -79,7 +79,7 @@ STA_TEST_LOCAL_HTTP=1 python -m pytest tests/test_stream_shutdown.py -q
 
 内置文件工具通过 `tracked_write` 先持久化修改前和预期内容，再原子替换目标文件。若进程停在中间，检查点允许核对实际文件仍是写前版本还是已成为预期版本；不推断 Shell 是否执行成功。`/resume` 复制已保存上下文到新会话，关闭待执行工具配对，重置授权和已读缓存，建立新的续接检查点。
 
-`/undo` 预览绑定检查点内容指纹，确认后再次校验全部文件。撤销逐文件执行，磁盘失败保留可重试的 `undoing` 状态。文件冲突、符号链接、越界路径或 Git/STA 内部状态路径会拒绝覆盖。文件快照保留原始字节与权限位，不对需要恢复的内容做日志脱敏替换。
+`/undo` 预览绑定检查点内容指纹，确认后再次校验全部文件。撤销逐文件执行，磁盘失败保留可重试的 `undoing` 状态。文件冲突、符号链接、越界路径或 Git/Douhua 内部状态路径会拒绝覆盖。文件快照保留原始字节与权限位，不对需要恢复的内容做日志脱敏替换。
 
 测试见 `tests/test_checkpoints.py`，覆盖持久化、恢复、新建/编辑撤销、外部冲突、写前日志、撤销中断重试和 TUI 确认。详细用法与限制见 [UI 使用说明](ui-guide.md#任务检查点恢复与撤销)。
 
@@ -89,9 +89,9 @@ STA_TEST_LOCAL_HTTP=1 python -m pytest tests/test_stream_shutdown.py -q
 
 ### 与 kay-go 的原子工具对照
 
-对照 kay-go 的 `app/cli/toolreg.go`、`core/tools/read`、`core/tools/grep` 和 `pkg/embed_data/tools/grep.yaml`，STA 保持 7 个内置工具：
+对照 kay-go 的 `app/cli/toolreg.go`、`core/tools/read`、`core/tools/grep` 和 `pkg/embed_data/tools/grep.yaml`，Douhua 保持 7 个内置工具：
 
-| STA | kay-go 核心对应项 | 结论 |
+| Douhua | kay-go 核心对应项 | 结论 |
 | --- | --- | --- |
 | `read_file` | Read | 保留，文本读取是基本能力；图片和 Notebook 读取属于后续扩展 |
 | `write_file`、`edit_file` | Write、Edit | 保留，完整写入与精确替换用途不同 |

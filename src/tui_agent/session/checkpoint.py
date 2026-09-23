@@ -118,7 +118,7 @@ class Checkpoint:
             ".git",
             ".tui-agent",
         }:
-            raise ValueError("任务快照不允许修改 Git 元数据或 STA 自身状态")
+            raise ValueError("任务快照不允许修改 Git 元数据或 Douhua 自身状态")
         return safe_path(self.root, relative)
 
     def prepare_write(self, path: Path, content: str):

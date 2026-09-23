@@ -47,9 +47,9 @@ logger = get_logger(__name__)
 
 
 class TuiAgentApp(App):
-    """STA 主应用"""
+    """Douhua 主应用"""
 
-    TITLE = "STA"
+    TITLE = "Douhua"
 
     # Esc 全局优先：运行中 / 等待确认时均可中断（与 /stop 相同）
     BINDINGS = [

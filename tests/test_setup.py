@@ -86,7 +86,7 @@ def test_first_launch_runs_setup_then_tui(monkeypatch):
     from tui_agent.__main__ import main
 
     answers(monkeypatch, ["1", "", ""])
-    monkeypatch.setattr(sys, "argv", ["sta"])
+    monkeypatch.setattr(sys, "argv", ["douhua"])
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     launched = []
@@ -102,10 +102,10 @@ def test_first_launch_runs_setup_then_tui(monkeypatch):
 def test_non_terminal_launch_does_not_prompt(monkeypatch, capsys):
     from tui_agent.__main__ import main
 
-    monkeypatch.setattr(sys, "argv", ["sta"])
+    monkeypatch.setattr(sys, "argv", ["douhua"])
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
     with pytest.raises(SystemExit) as error:
         main()
     assert error.value.code == 2
-    assert "sta --setup" in capsys.readouterr().err
+    assert "douhua --setup" in capsys.readouterr().err
     assert not (Path.home() / ".tui-agent.yaml").exists()

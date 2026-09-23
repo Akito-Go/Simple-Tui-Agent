@@ -16,7 +16,7 @@ def run_setup() -> None:
     path = Path.home() / ".tui-agent.yaml"
     config = _normalize_llm_section(_load_yaml(path))
     previous = LLMConfig(**config["llm"])
-    print("STA 配置向导 · Ctrl+C 取消")
+    print("Douhua 配置向导 · Ctrl+C 取消")
     print("1. OpenAI 兼容服务（含第三方服务）\n2. Anthropic")
     default = "2" if previous.provider in ("anthropic", "claude") else "1"
     while True:
@@ -66,4 +66,4 @@ def run_setup() -> None:
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
-    print("配置已保存。工作区配置和环境变量仍优先生效；可用 sta --setup 重新配置。")
+    print("配置已保存。工作区配置和环境变量仍优先生效；可用 douhua --setup 重新配置。")

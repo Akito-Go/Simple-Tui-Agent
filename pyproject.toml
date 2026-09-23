@@ -41,6 +41,7 @@ dev = [
 ]
 
 [project.scripts]
+douhua = "tui_agent.__main__:main"
 sta = "tui_agent.__main__:main"
 tui-agent = "tui_agent.__main__:main"
 

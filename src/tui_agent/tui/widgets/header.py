@@ -6,7 +6,7 @@ from textual.widgets import Static
 
 class HeaderWidget(Static):
     def __init__(self):
-        super().__init__("就绪 · STA", id="header", markup=False)
+        super().__init__("就绪 · Douhua", id="header", markup=False)
         self._details = None
 
     def update_status(self, model: str, turn: int, max_turns: int,

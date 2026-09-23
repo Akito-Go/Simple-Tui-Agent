@@ -239,6 +239,6 @@ def get_api_key(provider: str | None = None) -> str:
     if isinstance(api_key, str) and api_key.strip():
         return api_key.strip()
     raise ValueError(
-        f"未设置 {' / '.join(env_names)}。请运行 sta --setup，"
+        f"未设置 {' / '.join(env_names)}。请运行 douhua --setup，"
         "或通过环境变量、工作区 .env 配置对应密钥。"
     )

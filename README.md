@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/images/sta-cat.svg" alt="STA 笑眼坐猫" width="144" />
+  <img src="docs/images/sta-cat.svg" alt="Douhua 笑眼坐猫" width="144" />
 </p>
 
-<h1 align="center">STA · Simple TUI Agent</h1>
+<h1 align="center">Douhua · Simple TUI Agent</h1>
 
 <p align="center">在终端中用自然语言阅读代码、修改文件、执行开发任务。</p>
 
@@ -26,11 +26,11 @@
 - **任务可恢复**：保留会话历史与任务检查点，支持中断后续接、文件撤销。
 - **轻量交互**：键盘选择菜单、可折叠工具结果、临时问答 `/btw`，支持 OpenAI 兼容与 Anthropic API。
 
-![STA 欢迎页](docs/images/tui-wide.png)
+![Douhua 欢迎页](docs/images/tui-wide.png)
 
 首条任务消息后，猫咪欢迎页自动收为一行，为对话腾出空间。工具详情和长 diff 可按需展开。
 
-![STA 对话与文件差异](docs/images/tui-task.png)
+![Douhua 对话与文件差异](docs/images/tui-task.png)
 
 ## 快速开始
 
@@ -48,17 +48,17 @@ uv tool install --python 3.12 'git+https://github.com/Akito-Go/Simple-Tui-Agent.
 
 ```bash
 cd 你的项目
-sta
+douhua
 ```
 
 首次启动且未配置 API Key 时，会引导选择服务商、填写 API 地址、模型和密钥，完成后进入聊天。支持 OpenAI 兼容服务与 Anthropic；第三方服务填写对应的 API 地址和模型名。配置保存在用户目录，换项目无需重复填写。
 
 ```bash
-sta --setup    # 重新配置，完成后退出
-sta --version  # 查看安装版本
+douhua --setup    # 重新配置，完成后退出
+douhua --version  # 查看安装版本
 ```
 
-**启动时的当前目录就是工作区**；会话与检查点仍按项目保存在 `.tui-agent/`。`tui-agent` 和 `python -m tui_agent` 保留兼容。
+**启动时的当前目录就是工作区**；会话与检查点仍按项目保存在 `.tui-agent/`。`sta`、`tui-agent` 和 `python -m tui_agent` 保留兼容。
 
 更新与卸载：
 
@@ -110,7 +110,7 @@ uv tool uninstall tui-agent
 ## 非交互模式
 
 ```bash
-sta --prompt "检查项目测试" --json
+douhua --prompt "检查项目测试" --json
 ```
 
 `--prompt` 直接执行任务，`--json` 输出结构化结果。写入和 Shell 默认不会自动批准；需要自动批准时显式添加 `--yes`。

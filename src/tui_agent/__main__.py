@@ -23,8 +23,8 @@ def main():
     from tui_agent.tools.builtin import create_default_registry
     from tui_agent.llm.factory import create_llm_provider
 
-    parser = argparse.ArgumentParser(description="STA 终端编码 Agent")
-    parser.add_argument("--version", action="version", version=f"STA {version('tui-agent')}")
+    parser = argparse.ArgumentParser(description="Douhua 终端编码 Agent")
+    parser.add_argument("--version", action="version", version=f"Douhua {version('tui-agent')}")
     parser.add_argument("--setup", action="store_true", help="配置用户级服务商、模型和 API Key")
     parser.add_argument("--prompt", help="非交互执行的任务")
     parser.add_argument("--json", action="store_true", help="以 JSON 输出非交互结果")
@@ -35,7 +35,7 @@ def main():
 
     def setup():
         if not sys.stdin.isatty() or not sys.stdout.isatty():
-            parser.error("配置向导需要交互终端，请在终端运行 sta --setup")
+            parser.error("配置向导需要交互终端，请在终端运行 douhua --setup")
         from tui_agent.config.setup import run_setup
         try:
             run_setup()
@@ -57,7 +57,7 @@ def main():
             try:
                 get_api_key(load_config().llm.provider)
             except ValueError:
-                parser.error("当前工作区或环境变量覆盖了用户配置，请检查服务商设置，或运行 sta --setup 配置对应密钥")
+                parser.error("当前工作区或环境变量覆盖了用户配置，请检查服务商设置，或运行 douhua --setup 配置对应密钥")
     if args.prompt is not None:
         config = load_config()
         session = SessionManager(model=config.llm.model)

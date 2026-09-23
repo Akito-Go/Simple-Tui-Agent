@@ -1,4 +1,4 @@
-"""启动欢迎页 — 对齐 Claude Code 橙框左右分栏 + STA 小猫徽标"""
+"""启动欢迎页 — 对齐 Claude Code 橙框左右分栏 + Douhua 小猫徽标"""
 
 from __future__ import annotations
 
@@ -22,15 +22,15 @@ WELCOME_ICON = "\n".join(
         "    █▀▄▀████▀▄▀█       ",
         "    █████▀▀█████       ",
         "   ▄████████████▄      ",
-        "   ██████████████  ▄▄▄ ",
-        "  ▄████ ▀██▀ ████▄ █ █",
-        "  █████  ██  █████ ▀▄█",
-        "  █████  ██  █████  █ ",
-        "   ▀███▄▄██▄▄███▀▄▄█▀ ",
-        "     ▀▀▀▀▀▀▀▀▀▀▀▀▀▀   ",
+        "   ██████████████      ",
+        "  ▄████ ▀██▀ ████▄█▀█  ",
+        "  █████  ██  █████▀▄█  ",
+        "  █████  ██  █████  █  ",
+        "   ▀███▄▄██▄▄███▀▄▄█▀  ",
+        "     ▀▀▀▀▀▀▀▀▀▀▀▀▀▀    ",
     ]
 )
-BRAND_WORDMARK = "STA"
+BRAND_WORDMARK = "Douhua"
 
 WELCOME_TIPS: tuple[str, ...] = (
     "只读工具会自动执行；写入与 Shell 会先征求你的确认。",
@@ -299,4 +299,4 @@ class WelcomeWidget(Vertical):
             return
         self.add_class("dismissed")
         self.border_title = ""
-        self.mount(Static(f"STA · {self._model} · {_short_cwd(self._cwd)}", classes="welcome-summary", markup=False))
+        self.mount(Static(f"{BRAND_WORDMARK} · {self._model} · {_short_cwd(self._cwd)}", classes="welcome-summary", markup=False))
