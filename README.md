@@ -32,6 +32,8 @@
 
 ![Douhua 对话与文件差异](docs/images/tui-task.png)
 
+界面示例使用演示内容，按 120 列终端布局生成；实际字体与显示效果随终端设置而异。
+
 ## 快速开始
 
 普通使用推荐通过 [uv](https://docs.astral.sh/uv/getting-started/installation/) 安装。需要可用的模型 API Key，建议终端尺寸至少 **80×24**。
